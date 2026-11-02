@@ -35,4 +35,7 @@ export const DEF_IDS = [
   'encode/hash',
   'encode/file-hash',
   'encode/hmac',
+  'encode/cipher',
+  'encode/rsa',
+  'encode/jwt',
 ];

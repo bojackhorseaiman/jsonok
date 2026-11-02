@@ -10,21 +10,22 @@ const by = () => import('../../core/bytes');
 const cs = () => import('../../core/charset');
 const hs = () => import('../../core/hash');
 
-type Charset = 'utf-8' | 'gbk' | 'utf-16le' | 'utf-16be' | 'latin1';
-const CHARSETS: [string, string][] = [['utf-8', 'UTF-8'], ['gbk', 'GBK'], ['utf-16le', 'UTF-16 LE'], ['utf-16be', 'UTF-16 BE'], ['latin1', 'ISO-8859-1']];
-const O_CS: OptDef = { key: 'cs', label: '字符编码', type: 'select', options: CHARSETS, def: 'utf-8', title: '文字和字节互转时使用的编码；国内老系统的数据常用 GBK' };
+export type Charset = 'utf-8' | 'gbk' | 'utf-16le' | 'utf-16be' | 'latin1';
+export const CHARSETS: [string, string][] = [['utf-8', 'UTF-8'], ['gbk', 'GBK'], ['utf-16le', 'UTF-16 LE'], ['utf-16be', 'UTF-16 BE'], ['latin1', 'ISO-8859-1']];
+export const O_CS: OptDef = { key: 'cs', label: '字符编码', type: 'select', options: CHARSETS, def: 'utf-8', title: '文字和字节互转时使用的编码；国内老系统的数据常用 GBK' };
 const O_UPPER: OptDef = { key: 'upper', label: '大写字母', type: 'check', def: true };
-const TEXT = { jsonIn: () => false } as const;
-const onDir = (...d: string[]) => (_o: Opts, x: string) => d.includes(x);
-const charset = (o: Opts) => str(o, 'cs') as Charset;
-const join = (...xs: (string | false | undefined)[]) => xs.filter(Boolean).join(' · ');
-const size = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(2)} MB`);
-const lossyNote = (n: number, o: Opts) => (n ? `⚠ ${n} 个字符无法用 ${CHARSETS.find(([v]) => v === str(o, 'cs'))?.[1]} 表示，已替换成 ?` : '');
-const help = (rows: [string, string][], intro = '') =>
+export const TEXT = { jsonIn: () => false } as const;
+export const onDir = (...d: string[]) => (_o: Opts, x: string) => d.includes(x);
+export const charset = (o: Opts) => str(o, 'cs') as Charset;
+export const join = (...xs: (string | false | undefined)[]) => xs.filter(Boolean).join(' · ');
+export const size = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(2)} MB`);
+export const lossyNote = (n: number, o: Opts) => (n ? `⚠ ${n} 个字符无法用 ${CHARSETS.find(([v]) => v === str(o, 'cs'))?.[1]} 表示，已替换成 ?` : '');
+export const help = (rows: [string, string][], intro = '') =>
   (intro ? `<p>${intro}</p>` : '') + `<table class="help-t">${rows.map(([a, b]) => `<tr><td><code>${escapeHtml(a)}</code></td><td>${escapeHtml(b)}</td></tr>`).join('')}</table>`;
 
 /** 字节结果：能当文本显示就显示文本，否则当作文件（可以预览图片、下载） */
-async function bytesOut(bytes: Uint8Array, c: Charset, base: string, note = '', mimeHint?: string): Promise<Result> {
+/** binHint：结果是二进制（不是文本）时额外显示的提示，例如“可能是密钥不对” */
+export async function bytesOut(bytes: Uint8Array, c: Charset, base: string, note = '', mimeHint?: string, binHint = ''): Promise<Result> {
   const [B, C] = await Promise.all([by(), cs()]);
   const kind = B.detectType(bytes);
   const binaryHint = !!mimeHint && !/^text\/|json|xml|javascript/.test(mimeHint);
@@ -39,7 +40,7 @@ async function bytesOut(bytes: Uint8Array, c: Charset, base: string, note = '', 
   const mime = kind?.mime ?? mimeHint ?? 'application/octet-stream';
   const ext = (kind?.ext ?? (mimeHint ? mimeHint.split('/')[1]?.split(/[+;]/)[0] : '')) || 'bin';
   const label = kind?.label ?? (mimeHint ? `${mimeHint} 文件` : '二进制数据（不是文本）');
-  return { kind: 'bin', bytes, mime, name: `${base}.${ext}`, text: B.hexDump(bytes, 512), note: join(`结果是 ${label}，${size(bytes.length)}`, note) };
+  return { kind: 'bin', bytes, mime, name: `${base}.${ext}`, text: B.hexDump(bytes, 512), note: join(`结果是 ${label}，${size(bytes.length)}`, note, binHint) };
 }
 
 // ================= Base64 =================

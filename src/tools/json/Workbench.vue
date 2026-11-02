@@ -86,6 +86,8 @@ const outHtml = computed(() => {
   if (!t) return '';
   return t.json && t.text.length < 1.5e6 ? highlight(t.text) : escapeHtml(t.text);
 });
+const rerunShown = computed(() => (typeof def.rerun === 'function' ? def.rerun(dir.value) : !!def.rerun));
+const outTone = computed(() => (out.value.kind === 'text' ? out.value.tone ?? 'ok' : 'ok'));
 const outStat = computed(() => {
   const v = out.value;
   if (v.kind === 'text' || v.kind === 'tree' || v.kind === 'list' || v.kind === 'bin') return `✓ 完成 · ${v.ms} ms` + (v.note ? ` · ${v.note}` : '');
@@ -140,11 +142,12 @@ async function run(): Promise<void> {
   const n = count.value;
   const src = inputs.value.slice(0, n);
   if (attached.value && !attachedFile()) attached.value = null;
-  src.forEach((s, i) => save(storeKey(dir.value, i), (i === 0 && attached.value) || s.length >= 1e6 ? '' : s));
+  src.forEach((s, i) => save(storeKey(dir.value, i), (i === 0 && attached.value) || s.length >= 1e6 || def.noSaveInput?.(dir.value, i) ? '' : s));
   errLines.value = [0, 0];
   stats.value = [{ type: '', text: '' }, { type: '', text: '' }];
-  if (src.every((s) => !s.trim())) { out.value = { kind: 'empty' }; return; }
-  const blank = src.findIndex((s) => !s.trim());
+  // 没有输入框的工具（例如生成密钥对）直接执行
+  if (n > 0 && src.every((s) => !s.trim())) { out.value = { kind: 'empty' }; return; }
+  const blank = src.findIndex((s, i) => !s.trim() && !def.optionalInput?.(dir.value, i));
   if (blank >= 0) { out.value = { kind: 'hint', text: `请在「${titles.value[blank]}」里输入内容` }; return; }
 
   const parsed: (Core.ParseResult | null)[] = [];
@@ -223,10 +226,14 @@ onBeforeUnmount(() => clearTimeout(timer));
 // ---------- 输入区操作 ----------
 const inputRefs: (InstanceType<typeof CodeInput> | null)[] = [null, null];
 const setRef = (i: number, el: unknown) => { inputRefs[i] = el as InstanceType<typeof CodeInput> | null; };
-function loadSample(): void {
-  if (def.sampleOpts) Object.assign(o, def.sampleOpts(dir.value));
-  const s = def.sample?.(dir.value, o) ?? [SAMPLE];
-  s.forEach((v, i) => (inputs.value[i] = v));
+async function loadSample(): Promise<void> {
+  try {
+    if (def.sampleOpts) Object.assign(o, def.sampleOpts(dir.value, o));
+    const s = await (def.sample?.(dir.value, o) ?? [SAMPLE]);
+    s.forEach((v, i) => (inputs.value[i] = v));
+  } catch (e) {
+    toast('载入示例失败：' + (e instanceof Error ? e.message : String(e)));
+  }
 }
 async function onFile(i: number, f: File): Promise<void> {
   const maxMB = def.maxFileMB ?? 50;
@@ -331,8 +338,8 @@ function collapseAll(): void {
       <button v-for="p in def.presets" :key="p.label" type="button" class="chip" :class="{ on: presetOn(p.o) }" @click="applyPreset(p.o)">{{ p.label }}</button>
     </div>
 
-    <div class="wb-main">
-      <div class="wb-inputs" :class="{ dual: count === 2 }">
+    <div class="wb-main" :class="{ solo: count === 0 }">
+      <div v-if="count > 0" class="wb-inputs" :class="{ dual: count === 2 }">
         <CodeInput
           v-for="i in count"
           :key="`${dir}-${i}`"
@@ -358,7 +365,7 @@ function collapseAll(): void {
             <button class="btn" type="button" @click="expandAll"><AppIcon name="chevrons-up-down" :size="14" />展开全部</button>
             <button class="btn" type="button" @click="collapseAll"><AppIcon name="chevrons-down-up" :size="14" />折叠全部</button>
           </template>
-          <button v-if="def.rerun" class="btn" type="button" @click="schedule(true)"><AppIcon name="dices" :size="14" />重新生成</button>
+          <button v-if="rerunShown" class="btn" type="button" @click="schedule(true)"><AppIcon name="dices" :size="14" />{{ def.rerunLabel ?? '重新生成' }}</button>
           <button v-if="canBackfill" class="btn" type="button" title="把结果放回左侧继续处理" @click="backfill"><AppIcon name="corner-up-left" :size="14" />回填</button>
           <button class="btn" type="button" @click="download"><AppIcon name="download" :size="14" />下载</button>
           <button class="btn primary" type="button" @click="copyOut"><AppIcon name="copy" :size="14" />复制</button>
@@ -426,7 +433,7 @@ function collapseAll(): void {
           </div>
         </div>
         <div class="status">
-          <span class="stat ok" :title="outStat">{{ outStat }}</span>
+          <span class="stat" :class="outTone" :title="outStat">{{ outStat }}</span>
           <span class="spacer"></span>
           <span>{{ outSize }}</span>
         </div>

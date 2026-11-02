@@ -179,5 +179,7 @@ test('工具定义：每个编码工具的示例都能正确处理（不报错�
   const enc = catalog.slice(start, catalog.indexOf("['format','格式化'", start));
   const done = [...enc.matchAll(/\['([\w-]+)','[^']*','[^']*','[^']*done/g)].map((m) => 'encode/' + m[1]);
   for (const id of ids) assert.ok(done.includes(id), `${id} 已实现但目录里没有标记 done`);
-  for (const id of done) assert.ok(ids.includes(id) || id === 'encode/unicode', `${id} 标记了 done 但没有实现`);
+  const cry = readFileSync(new URL('../src/tools/encode/cryptoDefs.ts', import.meta.url), 'utf8');
+  const cryIds = [...cry.slice(cry.indexOf('export const CRYPTO_DEFS')).matchAll(/^  '([\w/-]+)':/gm)].map((m) => m[1]);
+  for (const id of done) assert.ok(ids.includes(id) || cryIds.includes(id) || id === 'encode/unicode', `${id} 标记了 done 但没有实现`);
 });

@@ -33,7 +33,7 @@ export interface AttachedFile {
 export interface ListRow { tone: 'add' | 'del' | 'mod' | 'err' | 'info'; cells: string[] }
 
 export type Result =
-  | { kind: 'text'; text: string; json?: boolean; note?: string; inNote?: string }
+  | { kind: 'text'; text: string; json?: boolean; note?: string; inNote?: string; /** 状态栏颜色，默认绿色 */ tone?: 'ok' | 'warn' | 'err' }
   | { kind: 'tree'; root: JNode; text: string; note?: string }
   | {
       kind: 'list'; head: string[]; rows: ListRow[]; summary: string; okText: string; text: string; note?: string;
@@ -65,7 +65,11 @@ export interface Preset { label: string; o: Opts }
 
 export interface ToolDef {
   /** 输入框个数，可以随方向变化 */
-  inputs?: (dir: string) => 1 | 2;
+  inputs?: (dir: string) => 0 | 1 | 2;
+  /** 这个输入框可以不填（例如 JWT 验证签名用的密钥） */
+  optionalInput?: (dir: string, idx: number) => boolean;
+  /** 这个输入框的内容不保存到浏览器（例如私钥、JWT） */
+  noSaveInput?: (dir: string, idx: number) => boolean;
   inTitles?: (dir: string) => string[];
   outTitle?: (dir: string) => string;
   placeholder?: (dir: string, idx: number) => string;
@@ -78,9 +82,9 @@ export interface ToolDef {
   ownInput?: boolean;
   /** 这个输入框的内容是 JSON（工作台会先解析、报错、显示统计） */
   jsonIn?: (dir: string, idx: number) => boolean;
-  sample?: (dir: string, o: Opts) => string[];
+  sample?: (dir: string, o: Opts) => string[] | Promise<string[]>;
   /** 载入示例时同时设置的选项（例如 HMAC 的示例密钥） */
-  sampleOpts?: (dir: string) => Opts;
+  sampleOpts?: (dir: string, o: Opts) => Opts;
   /** 不显示“示例”按钮 */
   noSample?: boolean;
   /** 打开文件的大小上限（MB），默认 50 */
@@ -93,7 +97,8 @@ export interface ToolDef {
   /** 一键填入的常用选项，例如 JSONPath 示例 */
   presets?: Preset[];
   /** 显示“重新生成”按钮（随机数据） */
-  rerun?: boolean;
+  rerun?: boolean | ((dir: string) => boolean);
+  rerunLabel?: string;
   /** 打开文件时接受的类型 */
   accept?: string;
   /** 特殊文件（如 Excel）的读取方式；返回 null 表示按普通文本读取 */
