@@ -1,0 +1,73 @@
+/* 设计变量（浅色 / 深色）、重置样式、通用小组件 */
+:root {
+  --bg: #f5f7fb; --panel: #ffffff; --panel-2: #f8fafc; --border: #e3e8ef; --border-strong: #cbd5e1;
+  --text: #0f172a; --text-2: #475569; --muted: #94a3b8;
+  --primary: #2563eb; --primary-bg: #eff6ff;
+  --ok: #16a34a; --ok-bg: #f0fdf4; --err: #dc2626; --err-bg: #fef2f2; --warn: #b45309;
+  --hot: #ea580c; --hot-bg: #fff7ed;
+  /* JSON 语法高亮：键 / 字符串 / 数字 / 布尔 / null / 标点 */
+  --k: #9333ea; --s: #16a34a; --n: #ea580c; --b: #2563eb; --nl: #64748b; --p: #64748b;
+  --gutter: #94a3b8; --gutter-bg: #f8fafc;
+  --mono: 'JetBrains Mono', 'SF Mono', Consolas, 'Courier New', monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.18);
+  /* 图标底色：亮度 / 前景亮度 / 饱和度 */
+  --ico-l: 96%; --ico-t: 42%; --ico-s: 85%;
+  --head: 100px;
+  color-scheme: light;
+}
+[data-theme='dark'] {
+  --bg: #0b1120; --panel: #111827; --panel-2: #0f172a; --border: #1f2937; --border-strong: #334155;
+  --text: #e5e7eb; --text-2: #9ca3af; --muted: #6b7280;
+  --primary: #3b82f6; --primary-bg: #172554;
+  --ok: #4ade80; --ok-bg: #052e16; --err: #f87171; --err-bg: #2a0f12; --warn: #fbbf24;
+  --hot: #fb923c; --hot-bg: #2a1505;
+  --k: #c084fc; --s: #4ade80; --n: #fb923c; --b: #60a5fa; --nl: #94a3b8; --p: #94a3b8;
+  --gutter: #4b5563; --gutter-bg: #0f172a;
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --ico-l: 20%; --ico-t: 78%; --ico-s: 55%;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); min-height: 100vh; display: flex; flex-direction: column; }
+#app { flex: 1; display: flex; flex-direction: column; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+h1, h2, h3 { line-height: 1.3; }
+kbd { font: 11px var(--mono); border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; color: var(--text-2); background: var(--panel); }
+.svg-i { display: block; flex: none; }
+.wrap { width: 100%; max-width: 1320px; margin: 0 auto; padding: 0 24px; }
+.spacer { flex: 1; }
+.muted { color: var(--muted); }
+.link { color: var(--primary); font-size: 12px; }
+.link:hover { text-decoration: underline; }
+
+/* 按钮 */
+.btn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text); padding: 4px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; transition: border-color 0.15s, color 0.15s; }
+.btn:hover { border-color: var(--primary); color: var(--primary); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); color: #fff; }
+
+/* 带底色的图标方块，--h 是分类色相 */
+.ico { --h: 217; flex: none; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: hsl(var(--h) var(--ico-s) var(--ico-l)); color: hsl(var(--h) 70% var(--ico-t)); transition: background 0.15s, color 0.15s; }
+.ico.sm { width: 26px; height: 26px; border-radius: 7px; }
+.ico.xs { width: 18px; height: 18px; border-radius: 5px; }
+.ico.lg { width: 42px; height: 42px; border-radius: 11px; }
+
+/* 标签 */
+.badge { font-size: 11px; line-height: 16px; padding: 0 5px; border-radius: 4px; white-space: nowrap; font-weight: 500; }
+.b-hot { color: var(--hot); background: var(--hot-bg); }
+.b-new { color: var(--primary); background: var(--primary-bg); }
+.b-dev { color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); line-height: 14px; }
+
+/* 提示条 */
+.toast { position: fixed; left: 50%; bottom: 40px; transform: translate(-50%, 10px); background: var(--text); color: var(--panel); padding: 8px 16px; border-radius: 20px; font-size: 13px; opacity: 0; pointer-events: none; transition: all 0.2s; z-index: 200; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+@media (max-width: 900px) {
+  .wrap { padding: 0 14px; }
+}

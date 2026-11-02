@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>快JSON - 开发者在线工具箱 | JSON 格式化、编解码、转换</title>
+    <meta name="description" content="免费在线开发者工具箱：JSON 格式化校验、树形查看、压缩转义，JSON 转 YAML / XML / CSV，Unicode 编解码等。数据只在浏览器本地处理，不上传服务器。" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // 页面渲染前先确定深色 / 浅色，避免闪烁
+      (function () {
+        try {
+          var t = JSON.parse(localStorage.getItem('kj.theme') || 'null');
+          if (t !== 'dark' && t !== 'light') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
