@@ -387,7 +387,7 @@ export function toXML(node: JNode): string {
 export interface CsvResult { text: string; rows: number; cols: number; path: string }
 
 /** 找到最适合当表格的数组：根是数组就用根；否则广度优先找第一个“元素是对象”的数组，比如 {"data":[...]} */
-function findTable(node: JNode): { rows: JNode[]; path: string } {
+export function findTable(node: JNode): { rows: JNode[]; path: string } {
   if (node.t === 'a') return { rows: node.items, path: '' };
   if (node.t !== 'o') return { rows: [node], path: '' };
   const q: [JObj, string][] = [[node, '$']];
@@ -445,4 +445,119 @@ export function unescapeStr(s: string): string {
   } catch {
     throw new Error('去转义失败：内容不是合法的转义字符串（检查是否有未转义的引号或换行）');
   }
+}
+
+
+// ---------------- 通用：带行列位置的错误、规范化、与 JS 值互转 ----------------
+
+/** 非 JSON 格式（YAML / TOML / XML / CSV / TOON）的语法错误，带行列 */
+export class LocError extends Error {
+  line: number;
+  col: number;
+  label: string;
+  constructor(message: string, line: number, col: number, label: string) {
+    super(message);
+    this.name = 'LocError';
+    this.line = Math.max(1, line);
+    this.col = Math.max(1, col);
+    this.label = label;
+  }
+}
+
+/** 字符位置 → LocError，方便各个解析器报错 */
+export function locError(src: string, pos: number, message: string, label: string): LocError {
+  const { line, col } = lineCol(src, pos);
+  return new LocError(message, line, col, label);
+}
+
+/** 行列 → 字符位置（定位错误用） */
+export function posOf(src: string, line: number, col: number): number {
+  let pos = 0;
+  for (let l = 1; l < line; l++) {
+    const i = src.indexOf('\n', pos);
+    if (i < 0) return src.length;
+    pos = i + 1;
+  }
+  return Math.min(src.length, pos + Math.max(0, col - 1));
+}
+
+export const isIntRaw = (raw: string): boolean => /^-?\d+$/.test(raw);
+export const isUnsafeInt = (raw: string): boolean => isIntRaw(raw) && !Number.isSafeInteger(Number(raw));
+
+/** 数字的规范写法，用于比较：1.0 → 1，1e2 → 100，超长整数保持精确 */
+export function normNum(raw: string): string {
+  if (isIntRaw(raw)) return BigInt(raw).toString();
+  const n = Number(raw);
+  return Number.isFinite(n) ? String(n) : raw;
+}
+
+/** 规范化文本：键排序（数字可选规范化），用于判断两个值是否相等、去重 */
+export function canonical(nd: JNode, numeric = true): string {
+  switch (nd.t) {
+    case 'o': return '{' + sortItems(nd.items).map(([k, v]) => JSON.stringify(k) + ':' + canonical(v, numeric)).join(',') + '}';
+    case 'a': return '[' + nd.items.map((v) => canonical(v, numeric)).join(',') + ']';
+    case 'n': return numeric ? normNum(nd.raw) : nd.raw;
+    default: return scalar(nd);
+  }
+}
+
+/** 对象里某个键的值（有重复键时取最后一个，和 JSON.parse 一致） */
+export function getKey(nd: JObj, key: string): JNode | undefined {
+  for (let i = nd.items.length - 1; i >= 0; i--) if (nd.items[i][0] === key) return nd.items[i][1];
+  return undefined;
+}
+
+function setProp(o: Record<string, unknown>, k: string, v: unknown): void {
+  // "__proto__" 这样的键要按普通字段写入，不能改掉对象的原型
+  if (k === '__proto__') Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
+  else o[k] = v;
+}
+
+/** JNode → 普通 JS 值。bigint=true 时超长整数转成 BigInt，不丢精度 */
+export function toJS(nd: JNode, bigint = false): unknown {
+  switch (nd.t) {
+    case 'o': {
+      const o: Record<string, unknown> = {};
+      for (const [k, v] of nd.items) setProp(o, k, toJS(v, bigint));
+      return o;
+    }
+    case 'a': return nd.items.map((v) => toJS(v, bigint));
+    case 's': return nd.v;
+    case 'b': return nd.v;
+    case 'z': return null;
+    case 'n': return bigint && isUnsafeInt(nd.raw) ? BigInt(nd.raw) : Number(nd.raw);
+  }
+}
+
+/** fromJS 的统计：无法用 JSON 表示的值（NaN、Infinity、undefined 等）被转成了 null */
+export interface FromJsInfo { lossy: number }
+
+/** 普通 JS 值 → JNode。BigInt 保持精确，日期转成 ISO 字符串 */
+export function fromJS(v: unknown, info: FromJsInfo = { lossy: 0 }): JNode {
+  if (v === null) return { t: 'z' };
+  switch (typeof v) {
+    case 'string': return { t: 's', v };
+    case 'boolean': return { t: 'b', v };
+    case 'bigint': return { t: 'n', raw: v.toString() };
+    case 'number':
+      if (!Number.isFinite(v)) { info.lossy++; return { t: 'z' }; }
+      return { t: 'n', raw: JSON.stringify(v) };
+    case 'object': {
+      if (v instanceof Date) return { t: 's', v: Number.isNaN(v.getTime()) ? String(v) : v.toISOString() };
+      if (Array.isArray(v)) return { t: 'a', items: v.map((x) => fromJS(x, info)) };
+      if (v instanceof Map) return { t: 'o', items: [...v].map(([k, x]) => [String(k), fromJS(x, info)] as [string, JNode]) };
+      return { t: 'o', items: Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, fromJS(x, info)] as [string, JNode]) };
+    }
+    default:
+      info.lossy++;
+      return { t: 'z' };
+  }
+}
+
+/** 统计超出安全范围的整数个数（用于提示“可能丢失精度”） */
+export function countUnsafe(v: unknown): number {
+  if (typeof v === 'number') return Number.isInteger(v) && !Number.isSafeInteger(v) ? 1 : 0;
+  if (Array.isArray(v)) return v.reduce((s: number, x) => s + countUnsafe(x), 0);
+  if (v && typeof v === 'object') return Object.values(v as Record<string, unknown>).reduce((s: number, x) => s + countUnsafe(x), 0);
+  return 0;
 }
