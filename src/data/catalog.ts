@@ -55,14 +55,14 @@ const RAW: RawCat[] = [
  ['mock','测试数据生成','按模板生成随机测试数据，可导出 JSON / YAML / XML / CSV','done',6]
 ]],
 ['encode','编码 / 加密','#',262,'编解码、哈希、对称和非对称加密，都在本地完成',[
- ['base64','Base64 编解码','文本和文件，支持 URL Safe','hot',3],
- ['basex','Base32 / 58 / 62 / 100','多种 Base 编码互转','',2],
- ['url','URL 编解码','encodeURIComponent / decodeURIComponent','hot'],
+ ['base64','Base64 编解码','文本和文件，支持 URL Safe','done hot',3],
+ ['basex','Base32 / 58 / 62 / 85 / 100','多种 Base 编码互转，支持中文','done',2],
+ ['url','URL 编解码','encodeURIComponent / decodeURIComponent','done hot'],
  ['unicode','Unicode 中文互转','\\u4e2d 和中文互转','done',3],
- ['utf8','UTF-8 编解码','字节序列和文本互转','',2],
- ['html-entity','HTML 实体编解码','&lt; &amp; 等实体互转',''],
- ['escape','Escape 编解码','JS 的 escape / unescape','',3],
- ['hex','十六进制 ⇄ 文本','Hex 字符串和文本互转','',2],
+ ['utf8','UTF-8 编解码','文字和 \\xE4 / %E4 / 0xE4 等字节写法互转，也支持 GBK','done',2],
+ ['html-entity','HTML 实体编解码','&lt; &amp; 等实体互转','done'],
+ ['escape','Escape 编解码','JS 的 escape / unescape','done',3],
+ ['hex','十六进制 ⇄ 文本','Hex 字符串和文本互转','done',2],
  ['hash','哈希计算','MD5 / SHA-1 / SHA-256 / SHA-3 / Keccak / RIPEMD / CRC 等','hot',10],
  ['file-hash','文件哈希','拖入文件计算 MD5 / SHA 值',''],
  ['hmac','HMAC 签名','HMAC-SHA256 等，调试接口签名','new'],
@@ -75,12 +75,12 @@ const RAW: RawCat[] = [
  ['gzip','Gzip 压缩解压','Gzip + Base64 文本互转',''],
  ['uuid','UUID / GUID 生成','v4 / v7，可批量生成','',2],
  ['password','随机密码生成','自定义长度和字符集','new'],
- ['morse','摩斯密码','文本和摩斯电码互转',''],
+ ['morse','摩斯密码','文本和摩斯电码互转','done'],
  ['js-obf','JS 混淆 / 解密','代码混淆，Eval 加密和解密','',3],
  ['cert','自签名证书','生成自签名 SSL 证书和私钥',''],
- ['thunder','下载链接解码','还原迅雷 / 快车 / 旋风地址',''],
+ ['thunder','下载链接解码','还原迅雷 / 快车 / 旋风地址','done'],
  ['magnet','种子转磁力链','把 torrent 文件转成 magnet 链接',''],
- ['email','邮箱地址加密','防爬虫的邮箱编码','']
+ ['email','邮箱地址加密','防爬虫的邮箱编码','done']
 ]],
 ['format','格式化','≡',190,'各种代码和配置的美化、压缩',[
  ['js','JS / HTML 格式化','美化和压缩','hot',2],

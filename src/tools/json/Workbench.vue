@@ -9,8 +9,9 @@ import AppIcon from '../../components/AppIcon';
 import CodeInput from './CodeInput.vue';
 import TreeNode from './TreeNode.vue';
 import { TREE_CTX, type TreeCtx } from './tree';
-import { DEFS, SAMPLE } from './defs';
-import type { Opts, OptVal, Result } from './types';
+import { SAMPLE } from './defs';
+import { ALL_DEFS as DEFS } from '../allDefs';
+import type { AttachedFile, Opts, OptVal, Result } from './types';
 import './tool.css';
 
 const props = defineProps<{ id: string }>();
@@ -61,8 +62,16 @@ const listOut = computed(() => (out.value.kind === 'list' ? out.value : null));
 const errOut = computed(() => (out.value.kind === 'error' ? out.value : null));
 const outText = computed(() => {
   const v = out.value;
-  return v.kind === 'text' || v.kind === 'tree' || v.kind === 'list' ? v.text : '';
+  return v.kind === 'text' || v.kind === 'tree' || v.kind === 'list' || v.kind === 'bin' ? v.text : '';
 });
+const binOut = computed(() => (out.value.kind === 'bin' ? out.value : null));
+// 二进制结果是图片时显示预览
+const binUrl = ref('');
+watch(binOut, (b) => {
+  if (binUrl.value) URL.revokeObjectURL(binUrl.value);
+  binUrl.value = b && /^image\//.test(b.mime) ? URL.createObjectURL(new Blob([b.bytes as unknown as BlobPart], { type: b.mime })) : '';
+});
+onBeforeUnmount(() => { if (binUrl.value) URL.revokeObjectURL(binUrl.value); });
 const canBackfill = computed(() => !!textOut.value || !!treeOut.value);
 
 const outGutter = computed(() => {
@@ -78,7 +87,7 @@ const outHtml = computed(() => {
 });
 const outStat = computed(() => {
   const v = out.value;
-  if (v.kind === 'text' || v.kind === 'tree' || v.kind === 'list') return `✓ 完成 · ${v.ms} ms` + (v.note ? ` · ${v.note}` : '');
+  if (v.kind === 'text' || v.kind === 'tree' || v.kind === 'list' || v.kind === 'bin') return `✓ 完成 · ${v.ms} ms` + (v.note ? ` · ${v.note}` : '');
   return '';
 });
 const outSize = computed(() => {
@@ -86,6 +95,7 @@ const outSize = computed(() => {
   if (v.kind === 'text') return `${countLines(v.text)} 行 · ${fmtSize(byteLen(v.text))}`;
   if (v.kind === 'tree') return fmtSize(byteLen(v.text));
   if (v.kind === 'list') return `${v.rows.length} 条`;
+  if (v.kind === 'bin') return fmtSize(v.bytes.length);
   return '';
 });
 
@@ -119,12 +129,17 @@ function locErr(which: number, src: string, title: string, message: string, line
   return { kind: 'error', title, message, which, line, col, pos: Core.posOf(src, line, col), ctx: buildCtx(src, line, col) };
 }
 
+// 打开的二进制文件：输入框里显示一行说明；用户改了输入框内容就不再使用这个文件
+const attached = shallowRef<(AttachedFile & { marker: string }) | null>(null);
+const attachedFile = (): AttachedFile | null => (attached.value && inputs.value[0] === attached.value.marker ? attached.value : null);
+
 let runId = 0;
 async function run(): Promise<void> {
   const id = ++runId;
   const n = count.value;
   const src = inputs.value.slice(0, n);
-  src.forEach((s, i) => save(storeKey(dir.value, i), s.length < 1e6 ? s : ''));
+  if (attached.value && !attachedFile()) attached.value = null;
+  src.forEach((s, i) => save(storeKey(dir.value, i), (i === 0 && attached.value) || s.length >= 1e6 ? '' : s));
   errLines.value = [0, 0];
   stats.value = [{ type: '', text: '' }, { type: '', text: '' }];
   if (src.every((s) => !s.trim())) { out.value = { kind: 'empty' }; return; }
@@ -151,7 +166,7 @@ async function run(): Promise<void> {
   const t0 = performance.now();
   running.value = true;
   try {
-    const res = await def.run({ src, json: parsed, o: { ...o }, dir: dir.value, fmt: fmt.value });
+    const res = await def.run({ src, json: parsed, o: { ...o }, dir: dir.value, fmt: fmt.value, file: attachedFile() });
     if (id !== runId) return;
     if (res.kind === 'tree') {
       treeCtx.action.value = '';
@@ -203,7 +218,7 @@ onBeforeUnmount(() => clearTimeout(timer));
 const inputRefs: (InstanceType<typeof CodeInput> | null)[] = [null, null];
 const setRef = (i: number, el: unknown) => { inputRefs[i] = el as InstanceType<typeof CodeInput> | null; };
 function loadSample(): void {
-  const s = def.sample?.(dir.value) ?? [SAMPLE];
+  const s = def.sample?.(dir.value, o) ?? [SAMPLE];
   s.forEach((v, i) => (inputs.value[i] = v));
 }
 async function onFile(i: number, f: File): Promise<void> {
@@ -214,6 +229,7 @@ async function onFile(i: number, f: File): Promise<void> {
       const r = await special;
       if (r.dir) dir.value = r.dir;
       await nextTick();
+      attached.value = r.bin ? { name: f.name, type: f.type, bytes: r.bin, marker: r.text } : null;
       inputs.value[i] = r.text;
       toast(r.note ?? '已载入 ' + f.name);
       return;
@@ -232,8 +248,16 @@ function copyOut(): void {
   if (!outText.value) { toast('没有可复制的内容'); return; }
   void copyText(outText.value);
 }
+function saveBlob(blob: Blob, name: string): void {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 function download(): void {
   const v = out.value;
+  if (v.kind === 'bin') { saveBlob(new Blob([v.bytes as unknown as BlobPart], { type: v.mime }), v.name); return; }
   if (!outText.value || (v.kind !== 'text' && v.kind !== 'tree' && v.kind !== 'list')) { toast('没有可下载的内容'); return; }
   const ext = def.ext?.(dir.value, o, v) ?? 'txt';
   const blob = new Blob([(ext === 'csv' ? '\uFEFF' : '') + outText.value], { type: `${MIME[ext] ?? 'text/plain'};charset=utf-8` });
@@ -367,6 +391,15 @@ function collapseAll(): void {
                 </tbody>
               </table>
             </template>
+          </div>
+          <div v-else-if="binOut" class="bin-out">
+            <div class="bin-info">
+              <span>{{ binOut.note }}</span>
+              <button class="btn primary" type="button" @click="download"><AppIcon name="download" :size="14" />下载文件</button>
+            </div>
+            <img v-if="binUrl" class="bin-img" :src="binUrl" alt="图片预览" />
+            <div class="bin-sub">十六进制预览</div>
+            <pre class="bin-hex">{{ binOut.text }}</pre>
           </div>
           <template v-else-if="textOut">
             <div class="gutter static" aria-hidden="true">{{ outGutter }}</div>

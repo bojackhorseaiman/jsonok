@@ -1,4 +1,4 @@
-// 使用通用工作台的工具 id（和 defs.ts 里的 DEFS 一一对应，tests 会检查）
+// 使用通用工作台的工具 id（和 json/defs.ts、encode/defs.ts 里的定义一一对应，tests 会检查）
 export const DEF_IDS = [
   'json/format',
   'json/minify',
@@ -22,4 +22,14 @@ export const DEF_IDS = [
   'json/postman',
   'json/mock',
   'encode/unicode',
+  'encode/base64',
+  'encode/basex',
+  'encode/url',
+  'encode/utf8',
+  'encode/html-entity',
+  'encode/escape',
+  'encode/hex',
+  'encode/morse',
+  'encode/thunder',
+  'encode/email',
 ];

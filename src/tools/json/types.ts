@@ -18,13 +18,18 @@ export interface OptDef {
   show?: (o: Opts, dir: string) => boolean;
 }
 
+/** 通过“打开文件”载入的二进制文件（例如 Base64 编码图片） */
+export interface AttachedFile { name: string; type: string; bytes: Uint8Array }
+
 /** 表格结果的一行：第一列显示成彩色标签 */
 export interface ListRow { tone: 'add' | 'del' | 'mod' | 'err'; cells: string[] }
 
 export type Result =
   | { kind: 'text'; text: string; json?: boolean; note?: string; inNote?: string }
   | { kind: 'tree'; root: JNode; text: string; note?: string }
-  | { kind: 'list'; head: string[]; rows: ListRow[]; summary: string; okText: string; text: string; note?: string };
+  | { kind: 'list'; head: string[]; rows: ListRow[]; summary: string; okText: string; text: string; note?: string }
+  /** 二进制结果：可以预览图片、下载文件；text 是十六进制预览（复制用） */
+  | { kind: 'bin'; bytes: Uint8Array; mime: string; name: string; text: string; note?: string };
 
 export interface RunCtx {
   /** 各个输入框的原始文本 */
@@ -34,6 +39,8 @@ export interface RunCtx {
   o: Opts;
   dir: string;
   fmt: FmtOpt;
+  /** 打开文件载入的二进制内容（没有时为 null） */
+  file: AttachedFile | null;
 }
 
 export interface Preset { label: string; o: Opts }
@@ -53,7 +60,7 @@ export interface ToolDef {
   ownInput?: boolean;
   /** 这个输入框的内容是 JSON（工作台会先解析、报错、显示统计） */
   jsonIn?: (dir: string, idx: number) => boolean;
-  sample?: (dir: string) => string[];
+  sample?: (dir: string, o: Opts) => string[];
   run: (c: RunCtx) => Result | Promise<Result>;
   /** 下载的文件扩展名 */
   ext?: (dir: string, o: Opts, res: Result) => string;
@@ -66,7 +73,7 @@ export interface ToolDef {
   /** 打开文件时接受的类型 */
   accept?: string;
   /** 特殊文件（如 Excel）的读取方式；返回 null 表示按普通文本读取 */
-  readFile?: (f: File, dir: string) => Promise<{ text: string; dir?: string; note?: string }> | null;
+  readFile?: (f: File, dir: string) => Promise<{ text: string; dir?: string; note?: string; bin?: Uint8Array }> | null;
 }
 
 export const str = (o: Opts, k: string): string => String(o[k] ?? '');
