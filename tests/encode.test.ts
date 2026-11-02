@@ -173,7 +173,7 @@ test('文件类型识别、文本判断、十六进制预览', () => {
 test('工具定义：每个编码工具的示例都能正确处理（不报错）', () => {
   const src = readFileSync(new URL('../src/tools/encode/defs.ts', import.meta.url), 'utf8');
   const ids = [...src.slice(src.indexOf('export const ENCODE_DEFS')).matchAll(/^  '([\w/-]+)':/gm)].map((m) => m[1]);
-  assert.equal(ids.length, 10);
+  assert.equal(ids.length, 13);
   const catalog = readFileSync(new URL('../src/data/catalog.ts', import.meta.url), 'utf8');
   const start = catalog.indexOf("['encode'");
   const enc = catalog.slice(start, catalog.indexOf("['format','格式化'", start));

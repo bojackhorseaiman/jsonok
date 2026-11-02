@@ -24,7 +24,7 @@ const optKey = (k: string) => (SHARED.has(k) ? k : `${props.id}.${k}`);
 const dir = ref<string>(dirs.length ? load<string>(`dir.${props.id}`, dirs[0][0]) : '');
 if (dirs.length && !dirs.some(([v]) => v === dir.value)) dir.value = dirs[0][0];
 const o = reactive<Opts>(Object.fromEntries(def.opts.map((d) => {
-  const v = load<OptVal>(optKey(d.key), d.def);
+  const v = d.noSave ? d.def : load<OptVal>(optKey(d.key), d.def);
   return [d.key, typeof v === typeof d.def ? v : d.def];
 })));
 const visibleOpts = computed(() => def.opts.filter((d) => !d.show || d.show(o, dir.value)));
@@ -55,6 +55,7 @@ type StatType = '' | 'ok' | 'warn' | 'err';
 const stats = ref<{ type: StatType; text: string }[]>([{ type: '', text: '' }, { type: '', text: '' }]);
 const errLines = ref([0, 0]);
 const running = ref(false);
+const progressText = ref('');
 
 const textOut = computed(() => (out.value.kind === 'text' ? out.value : null));
 const treeOut = computed(() => (out.value.kind === 'tree' ? out.value : null));
@@ -166,7 +167,12 @@ async function run(): Promise<void> {
   const t0 = performance.now();
   running.value = true;
   try {
-    const res = await def.run({ src, json: parsed, o: { ...o }, dir: dir.value, fmt: fmt.value, file: attachedFile() });
+    progressText.value = '';
+    const res = await def.run({
+      src, json: parsed, o: { ...o }, dir: dir.value, fmt: fmt.value, file: attachedFile(),
+      progress: (t: string) => { if (id === runId) progressText.value = t; },
+      stale: () => id !== runId,
+    });
     if (id !== runId) return;
     if (res.kind === 'tree') {
       treeCtx.action.value = '';
@@ -185,7 +191,7 @@ async function run(): Promise<void> {
       out.value = { kind: 'error', title: '处理失败', message, which: 0, line: 0, col: 0, pos: 0, ctx: '' };
     }
   } finally {
-    if (id === runId) running.value = false;
+    if (id === runId) { running.value = false; progressText.value = ''; }
   }
 }
 
@@ -201,7 +207,7 @@ watch(inputs, () => schedule(), { deep: true });
 watch(
   () => JSON.stringify(o),
   () => {
-    def.opts.forEach((d) => save(optKey(d.key), o[d.key]));
+    def.opts.forEach((d) => { if (!d.noSave) save(optKey(d.key), o[d.key]); });
     // 文本选项（比如 JSONPath 表达式）边打字边执行，稍等一下
     schedule(!def.opts.some((d) => d.type === 'text'));
   },
@@ -218,18 +224,20 @@ onBeforeUnmount(() => clearTimeout(timer));
 const inputRefs: (InstanceType<typeof CodeInput> | null)[] = [null, null];
 const setRef = (i: number, el: unknown) => { inputRefs[i] = el as InstanceType<typeof CodeInput> | null; };
 function loadSample(): void {
+  if (def.sampleOpts) Object.assign(o, def.sampleOpts(dir.value));
   const s = def.sample?.(dir.value, o) ?? [SAMPLE];
   s.forEach((v, i) => (inputs.value[i] = v));
 }
 async function onFile(i: number, f: File): Promise<void> {
-  if (f.size > 50 * 1024 * 1024) { toast('文件超过 50 MB，暂不支持'); return; }
+  const maxMB = def.maxFileMB ?? 50;
+  if (f.size > maxMB * 1024 * 1024) { toast(`文件超过 ${maxMB >= 1024 ? maxMB / 1024 + ' GB' : maxMB + ' MB'}，暂不支持`); return; }
   try {
     const special = def.readFile?.(f, dir.value);
     if (special) {
       const r = await special;
       if (r.dir) dir.value = r.dir;
       await nextTick();
-      attached.value = r.bin ? { name: f.name, type: f.type, bytes: r.bin, marker: r.text } : null;
+      attached.value = r.bin || r.blob ? { name: f.name, type: f.type, bytes: r.bin ?? new Uint8Array(0), blob: r.blob, marker: r.text } : null;
       inputs.value[i] = r.text;
       toast(r.note ?? '已载入 ' + f.name);
       return;
@@ -336,7 +344,7 @@ function collapseAll(): void {
           :stat="stats[i - 1]"
           :indent="indentStr"
           :accept="def.accept"
-          :sample="i === 1"
+          :sample="i === 1 && !def.noSample"
           @sample="loadSample"
           @file="(f: File) => onFile(i - 1, f)"
           @run="schedule(true)"
@@ -345,7 +353,7 @@ function collapseAll(): void {
 
       <section class="pane">
         <div class="pane-head">
-          <span class="pane-title">{{ outTitle }}<span v-if="running" class="spin" aria-label="处理中"></span></span>
+          <span class="pane-title">{{ outTitle }}<span v-if="running" class="spin" aria-label="处理中"></span><span v-if="running && progressText" class="progress-t">{{ progressText }}</span></span>
           <template v-if="treeOut">
             <button class="btn" type="button" @click="expandAll"><AppIcon name="chevrons-up-down" :size="14" />展开全部</button>
             <button class="btn" type="button" @click="collapseAll"><AppIcon name="chevrons-down-up" :size="14" />折叠全部</button>
@@ -380,13 +388,19 @@ function collapseAll(): void {
           <div v-else-if="listOut" class="list-out">
             <div v-if="!listOut.rows.length" class="ok-box">{{ listOut.okText }}</div>
             <template v-else>
-              <div class="list-sum">{{ listOut.summary }}</div>
+              <div class="list-sum" :class="listOut.tone">{{ listOut.summary }}</div>
               <table class="list-t">
                 <thead><tr><th v-for="h in listOut.head" :key="h">{{ h }}</th></tr></thead>
                 <tbody>
                   <tr v-for="(r, ri) in listOut.rows" :key="ri">
                     <td><span class="tag" :class="r.tone">{{ r.cells[0] }}</span></td>
-                    <td v-for="(c, ci) in r.cells.slice(1)" :key="ci" :class="{ mono: ci === 0 || listOut.head.length === 4 }">{{ c }}</td>
+                    <td
+                      v-for="(c, ci) in r.cells.slice(1)"
+                      :key="ci"
+                      :class="{ mono: ci === 0 || listOut.head.length === 4, copy: listOut.copyable }"
+                      :title="listOut.copyable ? '点击复制' : undefined"
+                      @click="listOut.copyable && copyText(c, `已复制 ${r.cells[0]}`)"
+                    >{{ c }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -408,7 +422,7 @@ function collapseAll(): void {
           <div v-else class="wb-empty">
             <div class="wb-empty-ico">{ }</div>
             <div>{{ out.kind === 'hint' ? out.text : '在左侧输入内容，结果会实时显示在这里' }}</div>
-            <button class="btn" type="button" @click="loadSample">载入示例</button>
+            <button v-if="!def.noSample" class="btn" type="button" @click="loadSample">载入示例</button>
           </div>
         </div>
         <div class="status">

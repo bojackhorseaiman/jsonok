@@ -32,4 +32,7 @@ export const DEF_IDS = [
   'encode/morse',
   'encode/thunder',
   'encode/email',
+  'encode/hash',
+  'encode/file-hash',
+  'encode/hmac',
 ];

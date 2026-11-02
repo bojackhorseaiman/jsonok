@@ -1,12 +1,14 @@
 // 编码 / 加密类工具的定义（3.1 文本编码）。具体的转换逻辑在 src/core 里，用到时才加载
 import { escapeHtml } from '../../core/text';
-import type { OptDef, Opts, Result, ToolDef } from '../json/types';
+import { ALGO_INFO, COMMON_FILE, COMMON_HASH } from '../../core/hashList';
+import type { OptDef, Opts, Result, RunCtx, ToolDef } from '../json/types';
 import { bool, str } from '../json/types';
 
 const tc = () => import('../../core/textcodec');
 const bx = () => import('../../core/basex');
 const by = () => import('../../core/bytes');
 const cs = () => import('../../core/charset');
+const hs = () => import('../../core/hash');
 
 type Charset = 'utf-8' | 'gbk' | 'utf-16le' | 'utf-16be' | 'latin1';
 const CHARSETS: [string, string][] = [['utf-8', 'UTF-8'], ['gbk', 'GBK'], ['utf-16le', 'UTF-16 LE'], ['utf-16be', 'UTF-16 BE'], ['latin1', 'ISO-8859-1']];
@@ -345,6 +347,156 @@ const email: ToolDef = {
   ext: (_d, o) => (str(o, 'style') === 'text' ? 'txt' : 'html'),
 };
 
+// ================= 哈希 / 文件哈希 / HMAC（3.2） =================
+
+const SINGLE_ALGOS: [string, string][] = ALGO_INFO.map((a) => [a.id, a.label]);
+const HMAC_ALGOS: [string, string][] = ALGO_INFO.filter((a) => a.hmac).map((a) => [a.id, 'HMAC-' + a.label]);
+const IN_FMT: [string, string][] = [['text', '文字'], ['hex', '十六进制'], ['base64', 'Base64']];
+const O_OUT: OptDef = { key: 'out', label: '输出', type: 'select', options: [['hex', '小写十六进制'], ['HEX', '大写十六进制'], ['base64', 'Base64']], def: 'hex' };
+const O_EXPECT: OptDef = {
+  key: 'expect', label: '对比', type: 'text', def: '', width: 240, noSave: true,
+  placeholder: '粘贴要核对的哈希值（可选）', title: '和计算结果对比，一致的会标成绿色；大小写、空格、Base64 都可以',
+};
+const pctText = (done: number, total: number) => `已处理 ${total ? Math.floor((done / total) * 100) : 100}%（${size(done)} / ${size(total)}）`;
+const fileMarker = (f: File) =>
+  `📎 已载入文件：${f.name}（${size(f.size)}）\n文件只在浏览器里分块读取，不会上传。在这里改动文字会取消文件，改为计算文字。`;
+
+/** 把输入框的内容按“输入格式”变成字节 */
+async function inputBytes(text: string, fmt: string, c: Charset): Promise<{ bytes: Uint8Array; lossy: number }> {
+  if (fmt === 'hex') return { bytes: (await by()).fromHex(text), lossy: 0 };
+  if (fmt === 'base64') return { bytes: (await by()).fromBase64(text).bytes, lossy: 0 };
+  return (await cs()).encodeText(text, c);
+}
+
+interface Digests { ids: string[]; values: Uint8Array[]; what: string }
+
+/** 计算一组算法的哈希：打开了文件就分块读文件，否则计算输入框里的内容 */
+async function computeDigests(c: RunCtx, ids: string[]): Promise<Digests & { lossy: number }> {
+  const m = await hs();
+  const algos = m.pickAlgos(ids);
+  const blob = c.file?.blob;
+  if (blob) {
+    const t0 = performance.now();
+    const values = await m.digestBlob(blob, algos, { progress: (d, t) => c.progress(pctText(d, t)), stale: c.stale });
+    const sec = (performance.now() - t0) / 1000;
+    const speed = sec > 0.5 ? ` · ${size(Math.round(blob.size / sec))}/秒` : '';
+    return { ids, values, what: `文件 ${blob.name} · ${size(blob.size)}${speed}`, lossy: 0 };
+  }
+  const { bytes, lossy } = await inputBytes(c.src[0], str(c.o, 'inFmt') || 'text', charset(c.o));
+  return { ids, values: algos.map((a) => m.digest(a, bytes)), what: `输入 ${size(bytes.length)}`, lossy };
+}
+
+/** 显示结果：一种算法时输出文本，多种算法时输出表格；填了对比值会标出一致的那一行 */
+async function digestResult(c: RunCtx, d: Digests, okText: (label: string) => string, extraNote = ''): Promise<Result> {
+  const m = await hs();
+  const out = (str(c.o, 'out') || 'hex') as 'hex';
+  const expect = str(c.o, 'expect').trim();
+  const labels = d.ids.map((id) => m.getAlgo(id).label);
+  const prefix = c.dir === 'hmac' ? 'HMAC-' : '';
+  if (d.ids.length === 1) {
+    const text = m.formatDigest(d.values[0], out);
+    const cmp = expect ? (m.matchDigest(expect, d.values[0]) ? '✓ 与对比值一致' : '✗ 与对比值不一致') : '';
+    const a = m.getAlgo(d.ids[0]);
+    return { kind: 'text', text, note: join(cmp, `${prefix}${a.label}，${a.bits} 位`, d.what, extraNote) };
+  }
+  let hit = -1;
+  const rows = d.values.map((v, i) => {
+    const ok = !!expect && m.matchDigest(expect, v);
+    if (ok && hit < 0) hit = i;
+    return { tone: ok ? ('add' as const) : ('info' as const), cells: [prefix + labels[i], m.formatDigest(v, out)] };
+  });
+  const summary = expect ? (hit >= 0 ? okText(prefix + labels[hit]) : '✗ 没有和对比值一致的结果') : `${rows.length} 种算法 · 点击结果可以复制`;
+  return {
+    kind: 'list', head: ['算法', '结果'], rows, summary, okText: '', copyable: true,
+    tone: expect ? (hit >= 0 ? 'ok' : 'err') : undefined,
+    text: rows.map((r) => `${r.cells[0]}: ${r.cells[1]}`).join('\n'),
+    note: join(d.what, extraNote),
+  };
+}
+
+const pickIds = (sel: string, common: string[]) => (sel === 'common' ? common : sel === 'all' ? ALGO_INFO.map((a) => a.id) : [sel]);
+
+const hash: ToolDef = {
+  ...TEXT,
+  opts: [
+    { key: 'algo', label: '算法', type: 'select', options: [['common', '常用 7 种（表格）'], ['all', `全部 ${ALGO_INFO.length} 种（表格）`], ...SINGLE_ALGOS], def: 'common' },
+    { key: 'inFmt', label: '输入格式', type: 'select', options: IN_FMT, def: 'text', title: '十六进制 / Base64：先还原成字节再计算，适合计算二进制数据的哈希' },
+    { ...O_CS, show: (o) => str(o, 'inFmt') === 'text' },
+    O_OUT,
+    O_EXPECT,
+  ],
+  inTitles: () => ['输入（也可以打开文件）'],
+  outTitle: () => '哈希值',
+  placeholder: () => '输入要计算哈希的文字，或点“打开文件”选择文件…',
+  sample: () => ['Hello, 快JSON!'],
+  accept: '*/*',
+  maxFileMB: 4096,
+  readFile: (f) => Promise.resolve({ text: fileMarker(f), blob: f, note: `已载入 ${f.name}，右侧是文件的哈希值` }),
+  help: help([
+    ['MD5 / SHA-1', '最常见，但已经不安全，只适合做校验、去重，不要用来存密码'],
+    ['SHA-256 / SHA-512', '目前最常用的安全哈希'],
+    ['SHA-3 / Keccak-256', 'SHA-3 是新标准；以太坊用的是 Keccak-256，和 SHA3-256 结果不同'],
+    ['SM3', '国密算法，政务、金融系统常用'],
+    ['CRC32 / CRC16 / Adler-32', '校验和，用来发现传输错误，不能防篡改'],
+  ], '同一段文字用 UTF-8 和 GBK 算出来的哈希不同，和别的系统对不上时，先确认双方用的字符编码。'),
+  run: async (c) => {
+    const d = await computeDigests(c, pickIds(str(c.o, 'algo'), COMMON_HASH));
+    return digestResult(c, d, (l) => `✓ 与 ${l} 的结果一致`, lossyNote(d.lossy, c.o));
+  },
+  ext: () => 'txt',
+};
+
+const fileHash: ToolDef = {
+  ...TEXT,
+  opts: [
+    { key: 'algo', label: '算法', type: 'select', options: [['common', '常用 5 种（MD5 / SHA-1 / SHA-256 / SHA-512 / CRC32）'], ['all', `全部 ${ALGO_INFO.length} 种`], ...SINGLE_ALGOS], def: 'common' },
+    O_OUT,
+    O_EXPECT,
+  ],
+  inTitles: () => ['选择文件'],
+  outTitle: () => '文件哈希值',
+  placeholder: () => '点上面的“打开文件”，或者把文件拖到这里。\n\n文件只在浏览器里分块读取，不会上传，几 GB 的大文件也可以。\n把官网提供的 SHA-256 粘贴到上面的“对比”框，就能核对下载的文件是否完整。',
+  noSample: true,
+  accept: '*/*',
+  maxFileMB: 4096,
+  readFile: (f) => Promise.resolve({ text: fileMarker(f), blob: f, note: `已载入 ${f.name}` }),
+  run: async (c) => {
+    if (!c.file?.blob) throw new Error('请点“打开文件”选择文件，或者把文件拖到左边。计算一段文字的哈希请用“哈希计算”工具。');
+    const d = await computeDigests(c, pickIds(str(c.o, 'algo'), COMMON_FILE));
+    return digestResult(c, d, (l) => `✓ 与 ${l} 一致，文件完整`);
+  },
+  ext: () => 'txt',
+};
+
+const hmacTool: ToolDef = {
+  ...TEXT,
+  opts: [
+    { key: 'algo', label: '算法', type: 'select', options: [['all', '全部（表格）'], ...HMAC_ALGOS], def: 'sha256' },
+    { key: 'key', label: '密钥', type: 'text', def: '', width: 200, noSave: true, placeholder: '签名用的密钥', title: '密钥不会保存到浏览器，刷新页面后需要重新填写' },
+    { key: 'keyFmt', label: '密钥格式', type: 'select', options: IN_FMT, def: 'text' },
+    { key: 'inFmt', label: '消息格式', type: 'select', options: IN_FMT, def: 'text' },
+    { ...O_CS, show: (o) => str(o, 'inFmt') === 'text' || str(o, 'keyFmt') === 'text' },
+    O_OUT,
+    O_EXPECT,
+  ],
+  inTitles: () => ['要签名的消息'],
+  outTitle: () => 'HMAC 签名',
+  placeholder: () => '输入要签名的内容，例如接口参数拼接后的字符串…',
+  sample: () => ['The quick brown fox jumps over the lazy dog'],
+  sampleOpts: () => ({ key: 'key', keyFmt: 'text', inFmt: 'text' }),
+  help: '<p>很多开放平台（支付、短信、云服务等）的接口签名都是 HMAC：用密钥对拼接好的参数字符串做 HMAC-SHA256，结果转成十六进制或 Base64。和平台给的示例对不上时，先检查参数拼接的顺序和字符编码。</p><p>密钥只在浏览器里使用，不会保存，也不会上传。</p>',
+  run: async (c) => {
+    const m = await hs();
+    const ids = str(c.o, 'algo') === 'all' ? ALGO_INFO.filter((a) => a.hmac).map((a) => a.id) : [str(c.o, 'algo')];
+    const k = await inputBytes(str(c.o, 'key'), str(c.o, 'keyFmt'), charset(c.o));
+    const msg = await inputBytes(c.src[0], str(c.o, 'inFmt'), charset(c.o));
+    const values = ids.map((id) => m.hmac(m.getAlgo(id), k.bytes, msg.bytes));
+    const warn = !k.bytes.length ? '⚠ 密钥为空，请在上方填写密钥' : '';
+    return digestResult({ ...c, dir: 'hmac' }, { ids, values, what: `密钥 ${size(k.bytes.length)}，消息 ${size(msg.bytes.length)}` }, (l) => `✓ 与 ${l} 的结果一致`, join(warn, lossyNote(k.lossy + msg.lossy, c.o)));
+  },
+  ext: () => 'txt',
+};
+
 // ================= 汇总 =================
 
 export const ENCODE_DEFS: Record<string, ToolDef> = {
@@ -358,4 +510,7 @@ export const ENCODE_DEFS: Record<string, ToolDef> = {
   'encode/morse': morse,
   'encode/thunder': thunder,
   'encode/email': email,
+  'encode/hash': hash,
+  'encode/file-hash': fileHash,
+  'encode/hmac': hmacTool,
 };

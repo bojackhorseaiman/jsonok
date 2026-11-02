@@ -14,20 +14,34 @@ export interface OptDef {
   placeholder?: string;
   /** 文本框宽度（px） */
   width?: number;
+  /** 不保存到浏览器（例如密钥、临时的对比值） */
+  noSave?: boolean;
   /** 只在满足条件时显示（例如某个方向、某种语言） */
   show?: (o: Opts, dir: string) => boolean;
 }
 
 /** 通过“打开文件”载入的二进制文件（例如 Base64 编码图片） */
-export interface AttachedFile { name: string; type: string; bytes: Uint8Array }
+export interface AttachedFile {
+  name: string;
+  type: string;
+  bytes: Uint8Array;
+  /** 大文件不读进内存，只保留文件本身，由工具分块读取 */
+  blob?: File;
+}
 
 /** 表格结果的一行：第一列显示成彩色标签 */
-export interface ListRow { tone: 'add' | 'del' | 'mod' | 'err'; cells: string[] }
+export interface ListRow { tone: 'add' | 'del' | 'mod' | 'err' | 'info'; cells: string[] }
 
 export type Result =
   | { kind: 'text'; text: string; json?: boolean; note?: string; inNote?: string }
   | { kind: 'tree'; root: JNode; text: string; note?: string }
-  | { kind: 'list'; head: string[]; rows: ListRow[]; summary: string; okText: string; text: string; note?: string }
+  | {
+      kind: 'list'; head: string[]; rows: ListRow[]; summary: string; okText: string; text: string; note?: string;
+      /** 汇总行的颜色 */
+      tone?: 'ok' | 'err';
+      /** 点击结果单元格就复制 */
+      copyable?: boolean;
+    }
   /** 二进制结果：可以预览图片、下载文件；text 是十六进制预览（复制用） */
   | { kind: 'bin'; bytes: Uint8Array; mime: string; name: string; text: string; note?: string };
 
@@ -41,6 +55,10 @@ export interface RunCtx {
   fmt: FmtOpt;
   /** 打开文件载入的二进制内容（没有时为 null） */
   file: AttachedFile | null;
+  /** 显示进度（耗时较长的计算用） */
+  progress: (text: string) => void;
+  /** 用户已经改了输入或选项，这次计算的结果不再需要 */
+  stale: () => boolean;
 }
 
 export interface Preset { label: string; o: Opts }
@@ -61,6 +79,12 @@ export interface ToolDef {
   /** 这个输入框的内容是 JSON（工作台会先解析、报错、显示统计） */
   jsonIn?: (dir: string, idx: number) => boolean;
   sample?: (dir: string, o: Opts) => string[];
+  /** 载入示例时同时设置的选项（例如 HMAC 的示例密钥） */
+  sampleOpts?: (dir: string) => Opts;
+  /** 不显示“示例”按钮 */
+  noSample?: boolean;
+  /** 打开文件的大小上限（MB），默认 50 */
+  maxFileMB?: number;
   run: (c: RunCtx) => Result | Promise<Result>;
   /** 下载的文件扩展名 */
   ext?: (dir: string, o: Opts, res: Result) => string;
@@ -73,7 +97,7 @@ export interface ToolDef {
   /** 打开文件时接受的类型 */
   accept?: string;
   /** 特殊文件（如 Excel）的读取方式；返回 null 表示按普通文本读取 */
-  readFile?: (f: File, dir: string) => Promise<{ text: string; dir?: string; note?: string; bin?: Uint8Array }> | null;
+  readFile?: (f: File, dir: string) => Promise<{ text: string; dir?: string; note?: string; bin?: Uint8Array; blob?: File }> | null;
 }
 
 export const str = (o: Opts, k: string): string => String(o[k] ?? '');
