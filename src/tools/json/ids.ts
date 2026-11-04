@@ -38,4 +38,5 @@ export const DEF_IDS = [
   'encode/cipher',
   'encode/rsa',
   'encode/jwt',
+  'encode/password',
 ];

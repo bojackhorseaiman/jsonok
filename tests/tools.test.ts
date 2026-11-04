@@ -282,10 +282,12 @@ test('工作台工具清单和定义一致', () => {
   const ids = readFileSync(new URL('../src/tools/json/ids.ts', import.meta.url), 'utf8');
   const enc = readFileSync(new URL('../src/tools/encode/defs.ts', import.meta.url), 'utf8');
   const cry = readFileSync(new URL('../src/tools/encode/cryptoDefs.ts', import.meta.url), 'utf8');
+  const pw = readFileSync(new URL('../src/tools/encode/pwDefs.ts', import.meta.url), 'utf8');
   const inDefs = [
     ...defs.slice(defs.indexOf('export const DEFS')).matchAll(/^  '([\w/-]+)':/gm),
     ...enc.slice(enc.indexOf('export const ENCODE_DEFS')).matchAll(/^  '([\w/-]+)':/gm),
     ...cry.slice(cry.indexOf('export const CRYPTO_DEFS')).matchAll(/^  '([\w/-]+)':/gm),
+    ...pw.slice(pw.indexOf('export const PW_DEFS')).matchAll(/^  '([\w/-]+)':/gm),
   ].map((m) => m[1]);
   const inIds = [...ids.matchAll(/^  '([\w/-]+)',$/gm)].map((m) => m[1]);
   assert.deepEqual(inIds, inDefs);
