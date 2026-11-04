@@ -73,7 +73,7 @@ watch(binOut, (b) => {
   binUrl.value = b && /^image\//.test(b.mime) ? URL.createObjectURL(new Blob([b.bytes as unknown as BlobPart], { type: b.mime })) : '';
 });
 onBeforeUnmount(() => { if (binUrl.value) URL.revokeObjectURL(binUrl.value); });
-const canBackfill = computed(() => !!textOut.value || !!treeOut.value);
+const canBackfill = computed(() => !def.noBackfill && (!!textOut.value || !!treeOut.value));
 
 const outGutter = computed(() => {
   const t = textOut.value;

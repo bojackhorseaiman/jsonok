@@ -98,6 +98,8 @@ export interface ToolDef {
   presets?: Preset[];
   /** 显示“重新生成”按钮（随机数据） */
   rerun?: boolean | ((dir: string) => boolean);
+  /** 不显示“回填”按钮（结果放回输入框没有意义，例如密码哈希） */
+  noBackfill?: boolean;
   rerunLabel?: string;
   /** 打开文件时接受的类型 */
   accept?: string;

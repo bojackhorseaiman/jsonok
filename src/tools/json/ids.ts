@@ -40,4 +40,5 @@ export const DEF_IDS = [
   'encode/jwt',
   'encode/password',
   'encode/uuid',
+  'encode/bcrypt',
 ];

@@ -1,4 +1,4 @@
-// 编码 / 加密类工具（3.4 密码和 ID）：随机密码生成、UUID
+// 编码 / 加密类工具（3.4 密码和 ID）：随机密码生成、UUID、Bcrypt / Scrypt
 import { SETS } from '../../core/password';
 import type { ListRow, Opts, ToolDef } from '../json/types';
 import { bool, str } from '../json/types';
@@ -168,7 +168,161 @@ const uuid: ToolDef = {
   ext: () => 'txt',
 };
 
+// ================= Bcrypt / Scrypt =================
+
+const kd = () => import('../../core/kdf');
+const isB = (o: Opts) => str(o, 'algo') === 'bcrypt';
+const isS = (o: Opts) => str(o, 'algo') === 'scrypt';
+const COSTS: [string, string][] = Array.from({ length: 12 }, (_, i) => {
+  const c = i + 4;
+  return [String(c), `${c}${c === 10 ? '（默认）' : c >= 13 ? '（较慢）' : ''}`];
+});
+const LNS: [string, string][] = Array.from({ length: 9 }, (_, i) => {
+  const ln = i + 10;
+  return [String(ln), `${2 ** ln}（2^${ln}）${ln === 14 ? ' 默认' : ln === 17 ? ' OWASP 推荐' : ''}`];
+});
+const KDF_PW = 'kuaijson@2026';
+const ms = (t0: number) => `用时 ${Math.round(performance.now() - t0)} ms`;
+const pct = (f: number) => `计算中 ${Math.round(f * 100)}%`;
+
+/** 输入框里的密码：去掉末尾的换行（空格保留）；中间有换行时报错 */
+function onePassword(src: string): string {
+  const pw = src.replace(/[\r\n]+$/, '');
+  if (/[\r\n]/.test(pw)) throw new Error('密码里有换行。一次只处理一个密码；末尾的换行会自动去掉');
+  return pw;
+}
+
+function scryptParams(o: Opts): { ln: number; r: number; p: number; dkLen: number } {
+  return { ln: Number(str(o, 'ln')), r: intOpt(str(o, 'r'), 1, 32, 'r（块大小）'), p: intOpt(str(o, 'p'), 1, 16, 'p（并行度）'), dkLen: Number(str(o, 'dkLen')) };
+}
+
+const kdf: ToolDef = {
+  ...TEXT,
+  dirs: [['gen', '生成哈希'], ['check', '验证密码']],
+  inputs: (d) => (d === 'gen' ? 1 : 2),
+  inTitles: (d) => (d === 'gen' ? ['密码'] : ['密码', '哈希值']),
+  outTitle: (d) => (d === 'gen' ? '哈希结果' : '验证结果'),
+  placeholder: (_d, i) =>
+    i === 0
+      ? '输入密码。末尾的换行会自动去掉，空格会保留'
+      : '粘贴哈希：Bcrypt 是 $2a$ / $2b$ / $2y$ 开头的 60 个字符；Scrypt 是 $scrypt$ln=…$盐$哈希，或者只有密钥（十六进制 / Base64，盐和参数在上方填写）',
+  noSaveInput: () => true,
+  noBackfill: true,
+  rerun: (d) => d === 'gen',
+  rerunLabel: '重新生成（换一个盐）',
+  opts: [
+    { key: 'algo', label: '算法', type: 'select', options: [['bcrypt', 'Bcrypt'], ['scrypt', 'Scrypt']], def: 'bcrypt', title: '验证时会按哈希的格式自动识别算法' },
+    { key: 'cost', label: '强度', type: 'select', options: COSTS, def: '10', show: (o, d) => isB(o) && d === 'gen', title: '每加 1，计算时间翻一倍。现在一般用 10 ~ 12' },
+    {
+      key: 'prefix', label: '前缀', type: 'select', def: '2b', show: (o, d) => isB(o) && d === 'gen',
+      options: [['2b', '$2b$（Node / Python / Go）'], ['2y', '$2y$（PHP）'], ['2a', '$2a$（Java Spring 等）']],
+      title: '三种前缀的算法相同，只是不同语言的习惯写法，各种语言一般都能互认',
+    },
+    { key: 'ln', label: 'N', type: 'select', options: LNS, def: '14', show: isS, title: 'CPU / 内存开销，越大越慢、越安全。验证 $scrypt$ 字符串时以字符串里的参数为准' },
+    { key: 'r', label: 'r', type: 'text', def: '8', width: 44, show: isS, title: '块大小，一般用 8' },
+    { key: 'p', label: 'p', type: 'text', def: '1', width: 44, show: isS, title: '并行度，一般用 1' },
+    { key: 'dkLen', label: '密钥长度', type: 'select', options: [['32', '32 字节'], ['64', '64 字节'], ['16', '16 字节']], def: '32', show: (o, d) => isS(o) && d === 'gen' },
+    {
+      key: 'saltMode', label: '盐', type: 'select', def: 'random', show: isS,
+      options: [['random', '随机生成（16 字节）'], ['text', '文字'], ['hex', '十六进制'], ['base64', 'Base64']],
+      title: '验证“只有密钥”的哈希时，需要填写原来的盐',
+    },
+    { key: 'salt', label: '盐的值', type: 'text', def: '', width: 200, noSave: true, show: (o) => isS(o) && str(o, 'saltMode') !== 'random' },
+  ],
+  sampleOpts: (_d, o): Opts => (isS(o) ? { saltMode: 'random' } : {}),
+  sample: async (d, o) => {
+    if (d === 'gen') return [KDF_PW];
+    const m = await kd();
+    if (isB(o)) return [KDF_PW, await m.bcryptHash(KDF_PW, { cost: 10, prefix: '2y' })];
+    const prm = { ln: 14, r: 8, p: 1, dkLen: 32 };
+    const salt = m.newSalt();
+    return [KDF_PW, m.scryptPhc(prm, salt, await m.scryptDerive(new TextEncoder().encode(KDF_PW), salt, prm))];
+  },
+  help:
+    help([
+      ['Bcrypt', '最常用的密码哈希。每次生成都会随机加盐，所以同一个密码每次的结果都不一样，这是正常的；验证时用原密码和哈希比对'],
+      ['强度', 'Bcrypt 的计算强度，每加 1 计算时间翻一倍。PHP 默认 10，Spring 默认 10'],
+      ['$2a$ / $2b$ / $2y$', '同一种算法的不同写法：PHP 用 $2y$，Node / Python 用 $2b$，Java 常见 $2a$'],
+      ['Scrypt', '比 Bcrypt 更耗内存，更能抵抗显卡破解。结果用 PHC 标准写法 $scrypt$ln=14,r=8,p=1$盐$哈希，和 Python passlib 互通'],
+    ]) +
+    '<p>注意：Bcrypt 只使用密码的前 72 个字节（一个汉字占 3 个字节），超出的部分不起作用，超过时会提醒。密码和哈希都不会保存到浏览器，也不会上传。</p>',
+  run: async (c) => {
+    const m = await kd();
+    const t0 = performance.now();
+    const pw = onePassword(c.src[0]);
+    if (c.dir === 'gen') {
+      if (isB(c.o)) {
+        const over = m.bcryptOverLimit(pw);
+        const cost = Number(str(c.o, 'cost'));
+        const h = await m.bcryptHash(pw, { cost, prefix: str(c.o, 'prefix') as '2b', onProgress: (f) => c.progress(pct(f)) });
+        return {
+          kind: 'text', text: h, tone: over ? 'warn' : 'ok',
+          note: join(over ? `⚠ 密码超过 72 字节，后面的 ${over} 个字节不起作用` : '', `Bcrypt，强度 ${cost}（${2 ** cost} 轮）`, ms(t0), '每次生成的结果都不同，这是正常的'),
+        };
+      }
+      const prm = scryptParams(c.o);
+      const mode = str(c.o, 'saltMode') as 'random';
+      let salt: Uint8Array;
+      if (mode === 'random') salt = m.newSalt();
+      else {
+        if (!str(c.o, 'salt')) throw new Error('请在上方“盐的值”里填写盐，或者把“盐”改成“随机生成”');
+        salt = m.readBytes(str(c.o, 'salt'), mode);
+      }
+      const key = await m.scryptDerive(new TextEncoder().encode(pw), salt, prm, { onProgress: (f) => c.progress(pct(f)), stale: c.stale });
+      const B = await import('../../core/bytes');
+      const phc = m.scryptPhc(prm, salt, key);
+      const rows: ListRow[] = [
+        { tone: 'info', cells: ['标准字符串', phc] },
+        { tone: 'info', cells: ['密钥（十六进制）', B.toHex(key)] },
+        { tone: 'info', cells: ['密钥（Base64）', B.toBase64(key)] },
+        { tone: 'info', cells: ['盐（十六进制）', B.toHex(salt)] },
+        { tone: 'info', cells: ['盐（Base64）', B.toBase64(salt)] },
+      ];
+      return {
+        kind: 'list', head: ['格式', '值（点击复制）'], rows, okText: '', copyable: true,
+        summary: `Scrypt，N=${2 ** prm.ln}，r=${prm.r}，p=${prm.p}，${prm.dkLen} 字节 · ${ms(t0)} · 约需 ${Math.round(m.scryptMemory(prm) / 1048576)} MB 内存`,
+        text: rows.map((r) => `${r.cells[0]}: ${r.cells[1]}`).join('\n'),
+        note: mode === 'random' ? '盐是随机生成的，验证时需要它（标准字符串里已经包含）' : '',
+      };
+    }
+    // ---------- 验证：按哈希格式自动识别算法 ----------
+    const hash = c.src[1].trim();
+    const result = (ok: boolean, info: string) => ({
+      kind: 'text' as const, tone: ok ? ('ok' as const) : ('err' as const),
+      text: ok ? '✓ 密码正确' : '✗ 密码不正确',
+      note: join(info, ms(t0), ok ? '' : '请检查密码是否有多余的空格、大小写是否正确'),
+    });
+    if (/^\$2[abxy]\$/.test(hash)) {
+      const r = await m.bcryptVerify(pw, hash, (f) => c.progress(pct(f)));
+      const auto = isS(c.o) ? '按哈希格式识别为 Bcrypt' : '';
+      return result(r.ok, join(auto, `Bcrypt ${r.info.prefix}，强度 ${r.info.cost}`, m.bcryptOverLimit(pw) ? '⚠ 密码超过 72 字节，只比较了前 72 个字节' : ''));
+    }
+    if (m.isScryptPhc(hash)) {
+      const x = m.parseScryptPhc(hash);
+      const key = await m.scryptDerive(new TextEncoder().encode(pw), x.salt, x.prm, { onProgress: (f) => c.progress(pct(f)), stale: c.stale });
+      return result(m.sameBytes(key, x.key), join(isB(c.o) ? '按哈希格式识别为 Scrypt' : '', `Scrypt，N=${2 ** x.prm.ln}，r=${x.prm.r}，p=${x.prm.p}`));
+    }
+    if (isB(c.o)) m.parseBcrypt(hash);
+    // Scrypt：只有密钥，盐和参数在上方填写
+    const mode = str(c.o, 'saltMode');
+    if (mode === 'random' || !str(c.o, 'salt')) {
+      throw new Error('验证只有密钥的 Scrypt 哈希，需要原来的盐：请在上方选择盐的格式并填写，或者粘贴 $scrypt$ 开头的完整字符串');
+    }
+    let want: Uint8Array;
+    try {
+      want = m.readKey(hash);
+    } catch {
+      throw new Error('无法识别哈希值：Scrypt 的密钥应该是十六进制或 Base64，或者 $scrypt$ 开头的完整字符串');
+    }
+    const prm = { ...scryptParams(c.o), dkLen: want.length };
+    const key = await m.scryptDerive(new TextEncoder().encode(pw), m.readBytes(str(c.o, 'salt'), mode as 'hex'), prm, { onProgress: (f) => c.progress(pct(f)), stale: c.stale });
+    return result(m.sameBytes(key, want), `Scrypt，N=${2 ** prm.ln}，r=${prm.r}，p=${prm.p}，${want.length} 字节`);
+  },
+  ext: () => 'txt',
+};
+
 export const PW_DEFS: Record<string, ToolDef> = {
   'encode/password': password,
   'encode/uuid': uuid,
+  'encode/bcrypt': kdf,
 };
