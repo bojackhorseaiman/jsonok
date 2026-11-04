@@ -293,3 +293,14 @@ test('工作台工具清单和定义一致', () => {
   const doneJson = [...catalog.slice(catalog.indexOf("['json'"), catalog.indexOf("['encode'")).matchAll(/\['([\w-]+)','[^']*','[^']*','[^']*done/g)].map((m) => 'json/' + m[1]);
   for (const id of doneJson) assert.ok(inIds.includes(id) || id === 'json/editor', `${id} 标记了 done 但没有实现`);
 });
+
+test('工具目录：暂不上线的工具（off）不和已上线的混在一起', () => {
+  const catalog = readFileSync(new URL('../src/data/catalog.ts', import.meta.url), 'utf8');
+  const raw = catalog.slice(catalog.indexOf('const RAW'), catalog.indexOf('export const CATEGORIES'));
+  const flags = [...raw.matchAll(/^\s*\['[\w-]+','[^']*','[^']*','([^']*)'/gm)].map((m) => m[1].split(/\s+/).filter(Boolean));
+  assert.equal(flags.length, 206, '工具总数');
+  const off = flags.filter((f) => f.includes('off'));
+  assert.equal(off.length, 94, '暂不上线');
+  assert.equal(flags.length - off.length, 112, '页面上显示的工具');
+  assert.ok(!flags.some((f) => f.includes('off') && f.includes('done')), '已上线的工具不能标 off');
+});

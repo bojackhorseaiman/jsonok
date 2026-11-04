@@ -43,6 +43,8 @@ tests/json.test.ts        核心库测试
 2. 在 `src/tools/registry.ts` 里登记：`'分类/slug': { load: () => import('./xxx/Xxx.vue') }`。
 3. 在 `src/data/catalog.ts` 里给这个工具加上 `done` 标记，首页和导航上的“开发中”标签会自动去掉。
 
+暂不上线的工具在 `catalog.ts` 里标了 `off`：页面上不显示、不生成页面、搜索不到，数据保留。要放出来时去掉 `off` 即可。
+
 ## 部署
 
 `npm run build` 后把 `dist/` 整个目录上传到任意静态服务器或 CDN 即可。
