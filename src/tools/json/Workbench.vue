@@ -331,7 +331,7 @@ function collapseAll(): void {
           <input v-model="o[d.key]" type="text" spellcheck="false" :placeholder="d.placeholder" :style="{ width: (d.width ?? 120) + 'px' }" />
         </label>
       </template>
-      <span class="wb-hint">Ctrl + Enter 立即执行 · 可以直接把文件拖进输入框</span>
+      <span v-if="count > 0" class="wb-hint">Ctrl + Enter 立即执行 · 可以直接把文件拖进输入框</span>
     </div>
     <div v-if="def.presets" class="presets">
       <span class="muted">常用：</span>

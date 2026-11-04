@@ -76,7 +76,7 @@ const RAW: RawCat[] = [
  ['htpasswd','htpasswd 生成','Nginx / Apache 的认证文件',''],
  ['jwt','JWT 解析 / 签发','解析 Header / Payload、显示过期时间、验证签名，支持 HS / RS / PS / ES / EdDSA','done hot'],
  ['gzip','Gzip 压缩解压','Gzip + Base64 文本互转',''],
- ['uuid','UUID / GUID 生成','v4 / v7，可批量生成','',2],
+ ['uuid','UUID / GUID 生成','v4 / v7 / v3 / v5，批量生成，解析版本和生成时间','done',2],
  ['password','随机密码生成','自定义长度和字符种类，排除易混淆字符，批量生成，显示强度','done new'],
  ['morse','摩斯密码','文本和摩斯电码互转','done'],
  ['js-obf','JS 混淆 / 解密','代码混淆，Eval 加密和解密','off',3],

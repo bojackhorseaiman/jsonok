@@ -76,6 +76,8 @@ pre.code { margin: 0; padding: 10px; font: 13px/20px var(--mono); flex: 1 0 auto
 .list-sum.ok { color: var(--ok); }
 .list-sum.err { color: var(--err); }
 .list-t td.copy { cursor: copy; }
+/* 第一列是类型 / 序号这种短标签，只占需要的宽度 */
+.list-t th:first-child, .list-t td:first-child { width: 1%; white-space: nowrap; }
 .list-t td.copy:hover { color: var(--primary); }
 .progress-t { font-weight: 400; font-size: 12px; color: var(--muted); }
 .ok-box { margin: 30px auto; padding: 16px 24px; border-radius: 10px; background: var(--ok-bg); color: var(--ok); font-weight: 600; text-align: center; width: fit-content; }
