@@ -51,6 +51,9 @@
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; font-size: 13px; color: var(--muted); }
 .chips a { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text-2); }
 .chips a:hover { color: var(--primary); border-color: var(--primary); }
+.chips-history { margin-top: 10px; }
+.chips-l { flex: none; }
+.chips-empty { color: var(--muted); }
 
 .sec { margin-bottom: 28px; scroll-margin-top: calc(var(--head) + 16px); }
 .sec-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }

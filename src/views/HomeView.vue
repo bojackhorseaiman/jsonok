@@ -42,10 +42,20 @@ onBeforeUnmount(() => {
         <kbd>Ctrl K</kbd>
       </button>
       <div class="chips">
-        热门：
+        <span class="chips-l">热门：</span>
         <RouterLink v-for="t in hot" :key="t.id" :to="toolPath(t)">
           <ToolIcon :hue="t.cat.hue" :icon="t.icon" size="xs" />{{ t.name }}
         </RouterLink>
+      </div>
+      <div class="chips chips-history">
+        <span class="chips-l">历史：</span>
+        <template v-if="recentTools.length">
+          <RouterLink v-for="t in recentTools" :key="t.id" :to="toolPath(t)">
+            <ToolIcon :hue="t.cat.hue" :icon="t.icon" size="xs" />{{ t.name }}
+          </RouterLink>
+          <button class="link" type="button" title="清空使用历史" @click="clearRecent">清空</button>
+        </template>
+        <span v-else class="chips-empty">还没有用过工具，打开过的工具会显示在这里</span>
       </div>
     </section>
 
