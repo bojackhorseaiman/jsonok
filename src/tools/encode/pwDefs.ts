@@ -1,4 +1,4 @@
-// 编码 / 加密类工具（3.4 密码和 ID）：随机密码生成、UUID、Bcrypt / Scrypt
+// 编码 / 加密类工具（3.4 密码和 ID）：随机密码生成、UUID、Bcrypt / Scrypt、数据库密码
 import { SETS } from '../../core/password';
 import type { ListRow, Opts, ToolDef } from '../json/types';
 import { bool, str } from '../json/types';
@@ -321,8 +321,97 @@ const kdf: ToolDef = {
   ext: () => 'txt',
 };
 
+
+// ================= 数据库密码 =================
+
+const dbm = () => import('../../core/dbpass');
+const DBS: [string, string][] = [
+  ['mysql', 'MySQL / MariaDB（mysql_native_password）'],
+  ['pg-scram', 'PostgreSQL SCRAM-SHA-256（10 以上）'],
+  ['pg-md5', 'PostgreSQL md5（旧版）'],
+];
+const onDb = (...k: string[]) => (o: Opts, d: string) => d === 'gen' && k.includes(str(o, 'db'));
+
+const dbPass: ToolDef = {
+  ...TEXT,
+  dirs: [['gen', '生成哈希'], ['check', '验证密码']],
+  inputs: (d) => (d === 'gen' ? 1 : 2),
+  inTitles: (d) => (d === 'gen' ? ['密码'] : ['密码', '数据库里的哈希值']),
+  outTitle: (d) => (d === 'gen' ? '哈希和 SQL 语句' : '验证结果'),
+  placeholder: (_d, i) =>
+    i === 0
+      ? '输入密码。末尾的换行会自动去掉，空格会保留'
+      : '粘贴哈希，会自动识别：MySQL 是 * 开头的 41 个字符；PostgreSQL 是 md5 开头的 35 个字符，或 SCRAM-SHA-256$ 开头',
+  noSaveInput: () => true,
+  noBackfill: true,
+  opts: [
+    { key: 'db', label: '数据库', type: 'select', options: DBS, def: 'mysql', show: onDir('gen') },
+    {
+      key: 'user', label: '用户名', type: 'text', def: '', width: 130, placeholder: '例如 app_user',
+      title: '用在生成的 SQL 语句里。PostgreSQL md5 的哈希里包含用户名，生成和验证时都必须填写',
+    },
+    { key: 'host', label: '主机', type: 'text', def: '%', width: 110, show: onDb('mysql'), title: "MySQL 账号的主机部分，'%' 表示任意主机，'localhost' 表示只允许本机" },
+    { key: 'iter', label: '迭代次数', type: 'text', def: '4096', width: 80, show: onDb('pg-scram'), title: 'PostgreSQL 默认 4096（scram_iterations 设置）' },
+  ],
+  sampleOpts: (d): Opts => (d === 'gen' ? { user: 'kuaijson' } : {}),
+  sample: (d) => (d === 'gen' ? ['kuaijson@2026'] : ['password', '*2470C0C06DEE42FD1618BB99005ADCA2EC9D1E19']),
+  help:
+    help([
+      ['MySQL / MariaDB', 'mysql_native_password：* 加上 SHA1(SHA1(密码)) 的大写十六进制，共 41 个字符。MySQL 5.x 和 MariaDB 的默认方式'],
+      ['MySQL 8', '默认改用 caching_sha2_password（$A$ 开头），这里不支持；mysql_native_password 在 8.4 默认关闭，9.0 已移除'],
+      ['PostgreSQL SCRAM', 'PostgreSQL 10 开始支持，14 起是默认方式。每次生成的盐都是随机的，所以结果都不同，这是正常的'],
+      ['PostgreSQL md5', 'md5 加上 MD5(密码 + 用户名)。用户名不同，哈希也不同；改用户名后密码会失效'],
+    ]) +
+    '<p>生成的 SQL 语句直接把哈希交给数据库，明文密码不会出现在 SQL 和数据库日志里。密码不会保存到浏览器，也不会上传。</p>',
+  run: async (c) => {
+    const m = await dbm();
+    const t0 = performance.now();
+    const pw = onePassword(c.src[0]);
+    const user = str(c.o, 'user').trim();
+    if (c.dir === 'check') {
+      const r = await m.verifyDb(pw, c.src[1], user);
+      return {
+        kind: 'text', tone: r.ok ? 'ok' : 'err', text: r.ok ? '✓ 密码正确' : '✗ 密码不正确',
+        note: join(r.d.label, r.d.note ?? '', r.detail, ms(t0), r.ok ? '' : r.d.kind === 'pg-md5' ? '请检查密码和用户名（区分大小写）' : '请检查密码是否有多余的空格、大小写是否正确'),
+      };
+    }
+    const kind = str(c.o, 'db') as 'mysql';
+    const notes: string[] = [];
+    let hash: string;
+    if (kind === 'mysql') {
+      hash = m.mysqlNative(pw);
+      notes.push('MySQL 8 默认不用这种方式，SQL 里已写明 mysql_native_password');
+    } else if (kind === 'pg-md5') {
+      if (!user) throw new Error('PostgreSQL md5 的哈希里包含用户名，请在上方填写用户名');
+      hash = m.pgMd5(pw, user);
+      notes.push('PostgreSQL 14 起默认使用 SCRAM-SHA-256，md5 只建议用在旧版本');
+    } else {
+      const iter = intOpt(str(c.o, 'iter'), 1, 10_000_000, '迭代次数');
+      hash = await m.pgScram(pw, iter);
+      const prep = m.saslPrep(pw);
+      if (prep.changed) notes.push('密码按 PostgreSQL 的规则做了规范化（例如全角字母变成半角、去掉不可见字符）');
+      if (prep.raw) notes.push('密码里有控制字符，按原样计算（和 PostgreSQL 一致）');
+      notes.push('盐是随机生成的，每次结果都不同');
+    }
+    if (kind !== 'mysql' && /[A-Z]/.test(user)) notes.push('提醒：PostgreSQL 里不加引号创建的用户名会变成小写，用户名要和数据库里的完全一致');
+    if (!user) notes.push('没有填写用户名，SQL 里用 username 代替');
+    const rows: ListRow[] = [
+      { tone: 'info', cells: ['哈希值', hash] },
+      ...m.sqlFor(kind, hash, user, str(c.o, 'host').trim()).map((l): ListRow => ({ tone: 'mod', cells: [l.label, l.sql] })),
+    ];
+    return {
+      kind: 'list', head: ['内容', '值（点击复制）'], rows, okText: '', copyable: true,
+      summary: `${DBS.find(([v]) => v === kind)?.[1]} · ${ms(t0)}`,
+      text: rows.map((r) => (r.cells[0] === '哈希值' ? r.cells[1] : `-- ${r.cells[0]}\n${r.cells[1]}`)).join('\n'),
+      note: notes.join(' · '),
+    };
+  },
+  ext: () => 'txt',
+};
+
 export const PW_DEFS: Record<string, ToolDef> = {
   'encode/password': password,
   'encode/uuid': uuid,
   'encode/bcrypt': kdf,
+  'encode/db-pass': dbPass,
 };
