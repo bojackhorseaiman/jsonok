@@ -1,7 +1,7 @@
-// 编码 / 加密类工具（3.4 密码和 ID）：随机密码生成、UUID、Bcrypt / Scrypt、数据库密码
+// 编码 / 加密类工具（3.4 密码和 ID）：随机密码生成、UUID、Bcrypt / Scrypt、数据库密码、htpasswd
 import { SETS } from '../../core/password';
 import type { ListRow, Opts, ToolDef } from '../json/types';
-import { bool, str } from '../json/types';
+import { bool, inputErr, str } from '../json/types';
 import { TEXT, help, join, onDir } from './defs';
 
 const pw = () => import('../../core/password');
@@ -184,6 +184,14 @@ const LNS: [string, string][] = Array.from({ length: 9 }, (_, i) => {
 const KDF_PW = 'kuaijson@2026';
 const ms = (t0: number) => `用时 ${Math.round(performance.now() - t0)} ms`;
 const pct = (f: number) => `计算中 ${Math.round(f * 100)}%`;
+/** 运行 fn，出错时把提示显示在第二个输入框（哈希）下面 */
+async function onHash<T>(fn: () => T | Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    throw inputErr(e, 1);
+  }
+}
 
 /** 输入框里的密码：去掉末尾的换行（空格保留）；中间有换行时报错 */
 function onePassword(src: string): string {
@@ -293,16 +301,16 @@ const kdf: ToolDef = {
       note: join(info, ms(t0), ok ? '' : '请检查密码是否有多余的空格、大小写是否正确'),
     });
     if (/^\$2[abxy]\$/.test(hash)) {
-      const r = await m.bcryptVerify(pw, hash, (f) => c.progress(pct(f)));
+      const r = await onHash(() => m.bcryptVerify(pw, hash, (f) => c.progress(pct(f))));
       const auto = isS(c.o) ? '按哈希格式识别为 Bcrypt' : '';
       return result(r.ok, join(auto, `Bcrypt ${r.info.prefix}，强度 ${r.info.cost}`, m.bcryptOverLimit(pw) ? '⚠ 密码超过 72 字节，只比较了前 72 个字节' : ''));
     }
     if (m.isScryptPhc(hash)) {
-      const x = m.parseScryptPhc(hash);
+      const x = await onHash(() => m.parseScryptPhc(hash));
       const key = await m.scryptDerive(new TextEncoder().encode(pw), x.salt, x.prm, { onProgress: (f) => c.progress(pct(f)), stale: c.stale });
       return result(m.sameBytes(key, x.key), join(isB(c.o) ? '按哈希格式识别为 Scrypt' : '', `Scrypt，N=${2 ** x.prm.ln}，r=${x.prm.r}，p=${x.prm.p}`));
     }
-    if (isB(c.o)) m.parseBcrypt(hash);
+    if (isB(c.o)) await onHash(() => m.parseBcrypt(hash));
     // Scrypt：只有密钥，盐和参数在上方填写
     const mode = str(c.o, 'saltMode');
     if (mode === 'random' || !str(c.o, 'salt')) {
@@ -312,7 +320,7 @@ const kdf: ToolDef = {
     try {
       want = m.readKey(hash);
     } catch {
-      throw new Error('无法识别哈希值：Scrypt 的密钥应该是十六进制或 Base64，或者 $scrypt$ 开头的完整字符串');
+      throw inputErr('无法识别哈希值：Scrypt 的密钥应该是十六进制或 Base64，或者 $scrypt$ 开头的完整字符串', 1);
     }
     const prm = { ...scryptParams(c.o), dkLen: want.length };
     const key = await m.scryptDerive(new TextEncoder().encode(pw), m.readBytes(str(c.o, 'salt'), mode as 'hex'), prm, { onProgress: (f) => c.progress(pct(f)), stale: c.stale });
@@ -369,6 +377,10 @@ const dbPass: ToolDef = {
     const pw = onePassword(c.src[0]);
     const user = str(c.o, 'user').trim();
     if (c.dir === 'check') {
+      await onHash(() => {
+        const d = m.detectDbHash(c.src[1]);
+        if (d.kind === 'pg-scram') m.parseScram(d.norm);
+      });
       const r = await m.verifyDb(pw, c.src[1], user);
       return {
         kind: 'text', tone: r.ok ? 'ok' : 'err', text: r.ok ? '✓ 密码正确' : '✗ 密码不正确',
@@ -409,9 +421,104 @@ const dbPass: ToolDef = {
   ext: () => 'txt',
 };
 
+
+// ================= htpasswd =================
+
+const htm = () => import('../../core/htpasswd');
+const HT_ALGOS: [string, string][] = [
+  ['bcrypt', 'Bcrypt（$2y$，最安全）'],
+  ['apr1', 'APR1-MD5（$apr1$，兼容性最好）'],
+  ['sha1', 'SHA-1（{SHA}，不加盐，不推荐）'],
+];
+const HT_SAMPLE = '# 示例：两个账号的密码都是 kuaijson@2026\nadmin:$apr1$kuaijson$gDpVRrmPPxkoibpDa9IEu0\nguest:{SHA}EvYduSeb2aF2Mav/G9bWJRR5kJs=';
+
+const htpasswd: ToolDef = {
+  ...TEXT,
+  dirs: [['gen', '生成'], ['check', '验证密码']],
+  inputs: (d) => (d === 'gen' ? 1 : 2),
+  inTitles: (d) => (d === 'gen' ? ['账号（一行一个：用户名:密码）'] : ['密码', 'htpasswd 文件内容']),
+  outTitle: (d) => (d === 'gen' ? 'htpasswd 文件内容' : '验证结果'),
+  placeholder: (d, i) =>
+    d === 'gen'
+      ? '每行一个账号，格式是 用户名:密码，例如\nadmin:kuaijson@2026\nalice:Alice#2026\n按第一个冒号分开，所以密码里可以有冒号'
+      : i === 0
+        ? '输入要验证的密码'
+        : '粘贴 htpasswd 文件的内容（可以有多行，# 开头的是注释），或者只粘贴一个哈希。有多个账号时，按上方的“用户名”查找',
+  noSaveInput: () => true,
+  noBackfill: true,
+  rerun: (d) => d === 'gen',
+  rerunLabel: '重新生成（换一个盐）',
+  opts: [
+    { key: 'algo', label: '算法', type: 'select', options: HT_ALGOS, def: 'bcrypt', show: onDir('gen') },
+    { key: 'cost', label: '强度', type: 'select', options: COSTS, def: '10', show: (o, d) => d === 'gen' && str(o, 'algo') === 'bcrypt', title: 'Apache 的 htpasswd 命令默认是 5，建议用 10 以上。每加 1，计算时间翻一倍' },
+    { key: 'user', label: '用户名', type: 'text', def: '', width: 130, placeholder: '只有一个账号时可以不填', show: onDir('check') },
+  ],
+  sampleOpts: (d): Opts => (d === 'check' ? { user: 'admin' } : {}),
+  sample: (d) => (d === 'gen' ? ['admin:kuaijson@2026\nalice:Alice#2026'] : ['kuaijson@2026', HT_SAMPLE]),
+  help:
+    help([
+      ['Bcrypt', '最安全。Apache 2.4 起支持；Nginx 能不能用取决于服务器系统自带的加密库，较新的 Linux 一般可以，较老的系统可能不行'],
+      ['APR1-MD5', 'Apache htpasswd 命令的默认算法，Nginx 和 Apache 都支持，兼容性最好。不确定服务器支不支持 Bcrypt 时用它'],
+      ['SHA-1', '不加盐，同样的密码哈希也相同，容易被破解，只为兼容旧系统保留'],
+      ['Nginx 配置', 'auth_basic "请登录"; auth_basic_user_file /etc/nginx/.htpasswd;'],
+      ['Apache 配置', 'AuthType Basic、AuthName "请登录"、AuthUserFile /etc/apache2/.htpasswd、Require valid-user'],
+    ]) +
+    '<p>把结果保存成 <code>.htpasswd</code> 文件放到服务器上即可。Bcrypt 和 APR1 每次生成都会随机加盐，所以结果都不一样，这是正常的。密码不会保存到浏览器，也不会上传。</p>',
+  run: async (c) => {
+    const m = await htm();
+    const t0 = performance.now();
+    if (c.dir === 'gen') {
+      const { list, warns } = m.parseAccounts(c.src[0]);
+      if (list.length > 200) throw new Error(`一次最多 200 个账号，现在是 ${list.length} 个`);
+      const algo = str(c.o, 'algo') as 'bcrypt' | 'apr1' | 'sha1';
+      const cost = Number(str(c.o, 'cost'));
+      const kdfm = await import('../../core/kdf');
+      const lines: string[] = [];
+      for (const [i, a] of list.entries()) {
+        if (c.stale()) throw new Error('已取消');
+        if (list.length > 1) c.progress(`计算中 ${i + 1} / ${list.length}`);
+        if (algo === 'bcrypt' && kdfm.bcryptOverLimit(a.pw)) warns.push(`${a.user} 的密码超过 72 字节，超出部分不起作用`);
+        lines.push(`${a.user}:${await m.htHash(a.pw, algo, cost)}`);
+      }
+      const tip =
+        algo === 'bcrypt' ? `Bcrypt，强度 ${cost} · Nginx 登录不了时改用 APR1`
+        : algo === 'apr1' ? 'APR1-MD5，Nginx 和 Apache 都支持'
+        : '⚠ SHA-1 不加盐，不推荐';
+      return {
+        kind: 'text', text: lines.join('\n'), tone: warns.length || algo === 'sha1' ? 'warn' : 'ok',
+        note: join(...warns.map((w) => '⚠ ' + w), `${list.length} 个账号`, tip, ms(t0)),
+      };
+    }
+    // ---------- 验证 ----------
+    const pw = onePassword(c.src[0]);
+    const entries = m.parseHtpasswd(c.src[1]);
+    if (!entries.length) throw inputErr('请粘贴 htpasswd 文件内容或一个哈希', 1);
+    const user = str(c.o, 'user').trim();
+    let e = entries[0];
+    if (user) {
+      const f = entries.find((x) => x.user === user);
+      if (!f) {
+        const names = entries.map((x) => x.user).filter(Boolean);
+        if (!(entries.length === 1 && !entries[0].user)) {
+          throw inputErr(`没有找到用户名 ${user}（区分大小写）${names.length ? `。文件里的用户名：${names.slice(0, 10).join('、')}${names.length > 10 ? ' 等' : ''}` : ''}`, 1);
+        }
+      } else e = f;
+    } else if (entries.length > 1) {
+      throw inputErr(`有 ${entries.length} 个账号，请在上方“用户名”里填写要验证哪一个：${entries.map((x) => x.user || '（没有用户名）').slice(0, 10).join('、')}`, 1);
+    }
+    const r = await onHash(() => m.htVerify(pw, e.hash));
+    return {
+      kind: 'text', tone: r.ok ? 'ok' : 'err', text: r.ok ? '✓ 密码正确' : '✗ 密码不正确',
+      note: join(e.user ? `用户名 ${e.user}（第 ${e.line} 行）` : '', r.label, ms(t0), r.ok ? '' : '请检查密码是否有多余的空格、大小写是否正确'),
+    };
+  },
+  ext: () => 'txt',
+};
+
 export const PW_DEFS: Record<string, ToolDef> = {
   'encode/password': password,
   'encode/uuid': uuid,
   'encode/bcrypt': kdf,
   'encode/db-pass': dbPass,
+  'encode/htpasswd': htpasswd,
 };

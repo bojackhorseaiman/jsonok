@@ -42,4 +42,5 @@ export const DEF_IDS = [
   'encode/uuid',
   'encode/bcrypt',
   'encode/db-pass',
+  'encode/htpasswd',
 ];

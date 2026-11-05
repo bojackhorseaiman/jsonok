@@ -73,7 +73,7 @@ const RAW: RawCat[] = [
  ['rsa','RSA 加解密','生成密钥对、公钥加密 / 私钥解密（支持分段）、签名验签','done'],
  ['bcrypt','Bcrypt / Scrypt','生成和验证密码哈希，Bcrypt 兼容 PHP / Java / Node，Scrypt 用标准字符串格式','done',4],
  ['db-pass','数据库密码','MySQL / MariaDB / PostgreSQL 密码哈希，生成建用户的 SQL，验证密码','done',3],
- ['htpasswd','htpasswd 生成','Nginx / Apache 的认证文件',''],
+ ['htpasswd','htpasswd 生成','Nginx / Apache 的认证文件，Bcrypt / APR1 / SHA-1，批量生成，验证密码','done'],
  ['jwt','JWT 解析 / 签发','解析 Header / Payload、显示过期时间、验证签名，支持 HS / RS / PS / ES / EdDSA','done hot'],
  ['gzip','Gzip 压缩解压','Gzip + Base64 文本互转',''],
  ['uuid','UUID / GUID 生成','v4 / v7 / v3 / v5，批量生成，解析版本和生成时间','done',2],

@@ -109,3 +109,10 @@ export interface ToolDef {
 
 export const str = (o: Opts, k: string): string => String(o[k] ?? '');
 export const bool = (o: Opts, k: string): boolean => o[k] === true;
+
+/** 给错误标上是哪个输入框的问题（从 0 开始），工作台会把提示显示在那个输入框下面 */
+export function inputErr(e: unknown, input: number): Error {
+  const err = e instanceof Error ? e : new Error(String(e));
+  (err as Error & { input?: number }).input = input;
+  return err;
+}

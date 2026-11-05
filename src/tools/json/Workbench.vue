@@ -190,8 +190,11 @@ async function run(): Promise<void> {
       out.value = locErr(i, src[i], `${e.label} 格式错误`, e.message.replace(/^\w+ (语法|格式)错误：/, ''), e.line, e.col);
     } else {
       const message = e instanceof Error ? e.message : String(e);
-      stats.value[0] = { type: 'err', text: '✗ ' + message };
-      out.value = { kind: 'error', title: '处理失败', message, which: 0, line: 0, col: 0, pos: 0, ctx: '' };
+      // 工具可以用 inputErr 指明是哪个输入框的问题，默认是第一个
+      const at = Number((e as { input?: number }).input ?? 0);
+      const which = Number.isInteger(at) && at >= 0 && at < src.length ? at : 0;
+      stats.value[which] = { type: 'err', text: '✗ ' + message };
+      out.value = { kind: 'error', title: '处理失败', message, which, line: 0, col: 0, pos: 0, ctx: '' };
     }
   } finally {
     if (id === runId) { running.value = false; progressText.value = ''; }
