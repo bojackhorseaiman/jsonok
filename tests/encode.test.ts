@@ -183,5 +183,7 @@ test('工具定义：每个编码工具的示例都能正确处理（不报错�
   const cryIds = [...cry.slice(cry.indexOf('export const CRYPTO_DEFS')).matchAll(/^  '([\w/-]+)':/gm)].map((m) => m[1]);
   const pw = readFileSync(new URL('../src/tools/encode/pwDefs.ts', import.meta.url), 'utf8');
   const pwIds = [...pw.slice(pw.indexOf('export const PW_DEFS')).matchAll(/^  '([\w/-]+)':/gm)].map((m) => m[1]);
-  for (const id of done) assert.ok(ids.includes(id) || cryIds.includes(id) || pwIds.includes(id) || id === 'encode/unicode', `${id} 标记了 done 但没有实现`);
+  const zip = readFileSync(new URL('../src/tools/encode/zipDefs.ts', import.meta.url), 'utf8');
+  const zipIds = [...zip.slice(zip.indexOf('export const ZIP_DEFS')).matchAll(/^  '([\w/-]+)':/gm)].map((m) => m[1]);
+  for (const id of done) assert.ok(ids.includes(id) || cryIds.includes(id) || pwIds.includes(id) || zipIds.includes(id) || id === 'encode/unicode', `${id} 标记了 done 但没有实现`);
 });

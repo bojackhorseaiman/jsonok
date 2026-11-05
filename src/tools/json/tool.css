@@ -43,6 +43,8 @@ pre.code { margin: 0; padding: 10px; font: 13px/20px var(--mono); flex: 1 0 auto
 
 .status { display: flex; gap: 12px; padding: 5px 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-2); min-height: 28px; align-items: center; }
 .stat { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* 右侧的行数、大小不换行，说明太长时只截断左侧 */
+.status > span:not(.stat):not(.spacer) { white-space: nowrap; flex-shrink: 0; }
 .stat.ok { color: var(--ok); } .stat.err { color: var(--err); } .stat.warn { color: var(--warn); }
 
 .wb-empty { margin: auto; text-align: center; color: var(--muted); line-height: 2; padding: 20px; }

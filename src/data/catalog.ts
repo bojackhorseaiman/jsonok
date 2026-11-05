@@ -75,7 +75,7 @@ const RAW: RawCat[] = [
  ['db-pass','数据库密码','MySQL / MariaDB / PostgreSQL 密码哈希，生成建用户的 SQL，验证密码','done',3],
  ['htpasswd','htpasswd 生成','Nginx / Apache 的认证文件，Bcrypt / APR1 / SHA-1，批量生成，验证密码','done'],
  ['jwt','JWT 解析 / 签发','解析 Header / Payload、显示过期时间、验证签名，支持 HS / RS / PS / ES / EdDSA','done hot'],
- ['gzip','Gzip 压缩解压','Gzip + Base64 文本互转',''],
+ ['gzip','Gzip 压缩解压','Gzip / Zlib / Deflate，和 Base64 / 十六进制 / 文件互转，自动识别格式','done'],
  ['uuid','UUID / GUID 生成','v4 / v7 / v3 / v5，批量生成，解析版本和生成时间','done',2],
  ['password','随机密码生成','自定义长度和字符种类，排除易混淆字符，批量生成，显示强度','done new'],
  ['morse','摩斯密码','文本和摩斯电码互转','done'],
